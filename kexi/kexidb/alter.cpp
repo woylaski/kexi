@@ -18,6 +18,7 @@
 */
 
 #include "alter.h"
+#include "alteredtableschema.h"
 #include <db/utils.h>
 #include <kexiutils/utils.h>
 #include <QMap>
@@ -48,8 +49,7 @@ AlterTableHandler::MoveFieldPositionAction nullMoveFieldPositionAction(true);
 //--------------------------------------------------------
 
 AlterTableHandler::ActionBase::ActionBase(bool null)
-        : m_alteringRequirements(0)
-        , m_order(-1)
+        : m_order(-1)
         , m_null(null)
 {
 }
@@ -88,16 +88,14 @@ AlterTableHandler::MoveFieldPositionAction& AlterTableHandler::ActionBase::toMov
 
 //--------------------------------------------------------
 
-AlterTableHandler::FieldActionBase::FieldActionBase(const QString& fieldName, int uid)
+AlterTableHandler::FieldActionBase::FieldActionBase(const QString& fieldName)
         : ActionBase()
-        , m_fieldUID(uid)
         , m_fieldName(fieldName)
 {
 }
 
 AlterTableHandler::FieldActionBase::FieldActionBase(bool)
         : ActionBase(true)
-        , m_fieldUID(-1)
 {
 }
 
@@ -191,8 +189,8 @@ int AlterTableHandler::alteringTypeForProperty(const QByteArray& propertyName)
 //---
 
 AlterTableHandler::ChangeFieldPropertyAction::ChangeFieldPropertyAction(
-    const QString& fieldName, const QString& propertyName, const QVariant& newValue, int uid)
-        : FieldActionBase(fieldName, uid)
+    const QString& fieldName, const QString& propertyName, const QVariant& newValue)
+        : FieldActionBase(fieldName)
         , m_propertyName(propertyName)
         , m_newValue(newValue)
 {
@@ -207,28 +205,16 @@ AlterTableHandler::ChangeFieldPropertyAction::~ChangeFieldPropertyAction()
 {
 }
 
-void AlterTableHandler::ChangeFieldPropertyAction::updateAlteringRequirements()
+int AlterTableHandler::ChangeFieldPropertyAction::alteringRequirements() const
 {
-// m_alteringRequirements = ???;
-    setAlteringRequirements(alteringTypeForProperty(m_propertyName.toLatin1()));
+    return alteringTypeForProperty(m_propertyName.toLatin1());
 }
 
 QString AlterTableHandler::ChangeFieldPropertyAction::debugString(const DebugOptions& debugOptions)
 {
     QString s = QString("Set \"%1\" property for table field \"%2\" to \"%3\"")
                 .arg(m_propertyName).arg(fieldName()).arg(m_newValue.toString());
-    if (debugOptions.showUID)
-        s.append(QString(" (UID=%1)").arg(m_fieldUID));
     return s;
-}
-
-static AlterTableHandler::ActionDict* createActionDict(
-    AlterTableHandler::ActionDictDict &fieldActions, int forFieldUID)
-{
-    AlterTableHandler::ActionDict* dict = new AlterTableHandler::ActionDict();
-//Qt4 dict->setAutoDelete(true);
-    fieldActions.insert(forFieldUID, dict);
-    return dict;
 }
 
 static void debugAction(AlterTableHandler::ActionBase *action, int nestingLevel,
@@ -242,7 +228,6 @@ static void debugAction(AlterTableHandler::ActionBase *action, int nestingLevel,
         debugString = prependString;
     if (action) {
         AlterTableHandler::ActionBase::DebugOptions debugOptions;
-        debugOptions.showUID = debugTarget == 0;
         debugOptions.showFieldDebug = debugTarget != 0;
         debugString += action->debugString(debugOptions);
     } else {
@@ -261,7 +246,7 @@ static void debugAction(AlterTableHandler::ActionBase *action, int nestingLevel,
     }
 }
 
-static void debugActionDict(AlterTableHandler::ActionDict *dict, int fieldUID, bool simulate)
+static void debugActionDict(AlterTableHandler::ActionDict *dict, bool simulate)
 {
     QString fieldName;
     AlterTableHandler::ActionDictConstIterator it(dict->constBegin());
@@ -272,8 +257,8 @@ static void debugActionDict(AlterTableHandler::ActionDict *dict, int fieldUID, b
     else {
         fieldName = "??";
     }
-    QString dbg = QString("Action dict for field \"%1\" (%2, UID=%3):")
-                  .arg(fieldName).arg(dict->count()).arg(fieldUID);
+    QString dbg = QString("Action dict for field \"%1\" (%2):")
+                  .arg(fieldName).arg(dict->count());
     KexiDBDbg << dbg;
 #ifdef KEXI_DEBUG_GUI
     if (simulate)
@@ -291,192 +276,14 @@ static void debugFieldActions(const AlterTableHandler::ActionDictDict &fieldActi
         KexiDB::alterTableActionDebugGUI("** Simplified Field Actions:");
 #endif
     for (AlterTableHandler::ActionDictDictConstIterator it(fieldActions.constBegin()); it != fieldActions.constEnd(); ++it) {
-        debugActionDict(it.value(), it.key(), simulate);
+        debugActionDict(it.value(), simulate);
     }
-}
-
-/*!
- Legend: A,B==fields, P==property, [....]==action, (..,..,..) group of actions, <...> internal operation.
- Case 1. (special)
-    when new action=[rename A to B]
-    and exists=[rename B to C]
-    =>
-    remove [rename B to C]
-    and set result to new [rename A to C]
-    and go to 1b.
- Case 1b. when new action=[rename A to B]
-    and actions exist like [set property P to C in field B]
-    or like [delete field B]
-    or like [move field B]
-    =>
-    change B to A for all these actions
- Case 2. when new action=[change property in field A] (property != name)
-    and exists=[remove A] or exists=[change property in field A]
-    =>
-    do not add [change property in field A] because it will be removed anyway or the property will change
-*/
-void AlterTableHandler::ChangeFieldPropertyAction::simplifyActions(ActionDictDict &fieldActions)
-{
-    ActionDict *actionsLikeThis = fieldActions.value(uid());
-    if (m_propertyName == "name") {
-        // Case 1. special: name1 -> name2, i.e. rename action
-        QString newName(newValue().toString());
-        // try to find rename(newName, otherName) action
-        ActionBase *renameActionLikeThis = actionsLikeThis ? actionsLikeThis->value("name") : 0;
-        if (dynamic_cast<ChangeFieldPropertyAction*>(renameActionLikeThis)) {
-            // 1. instead of having rename(fieldName(), newValue()) action,
-            // let's have rename(fieldName(), otherName) action
-            dynamic_cast<ChangeFieldPropertyAction*>(renameActionLikeThis)->m_newValue
-            = dynamic_cast<ChangeFieldPropertyAction*>(renameActionLikeThis)->m_newValue;
-            /*   AlterTableHandler::ChangeFieldPropertyAction* newRenameAction
-                    = new AlterTableHandler::ChangeFieldPropertyAction( *this );
-                  newRenameAction->m_newValue = dynamic_cast<ChangeFieldPropertyAction*>(renameActionLikeThis)->m_newValue;
-                  // (m_order is the same as in newAction)
-                  // replace prev. rename action (if any)
-                  actionsLikeThis->remove( "name" );
-                  ActionDict *adict = fieldActions[ fieldName().toLatin1() ];
-                  if (!adict)
-                    adict = createActionDict( fieldActions, fieldName() );
-                  adict->insert(m_propertyName.toLatin1(), newRenameAction);*/
-        } else {
-            ActionBase *removeActionForThisField = actionsLikeThis ? actionsLikeThis->value(":remove:") : 0;
-            if (removeActionForThisField) {
-                //if this field is going to be removed, jsut change the action's field name
-                // and do not add a new action
-            } else {
-                //just insert a copy of the rename action
-                if (!actionsLikeThis)
-                    actionsLikeThis = createActionDict(fieldActions, uid());   //fieldName() );
-                AlterTableHandler::ChangeFieldPropertyAction* newRenameAction
-                    = new AlterTableHandler::ChangeFieldPropertyAction(*this);
-                KexiDBDbg << "insert into" << fieldName()
-                    << "dict:"  << newRenameAction->debugString();
-                actionsLikeThis->insert(m_propertyName.toLatin1(), newRenameAction);
-                return;
-            }
-        }
-        if (actionsLikeThis) {
-            // Case 1b. change "field name" information to fieldName() in any action that
-            //    is related to newName
-            //    e.g. if there is setCaption("B", "captionA") action after rename("A","B"),
-            //    replace setCaption action with setCaption("A", "captionA")
-            foreach(ActionBase* action, *actionsLikeThis) {
-                dynamic_cast<FieldActionBase*>(action)->setFieldName(fieldName());
-            }
-        }
-        return;
-    }
-    ActionBase *removeActionForThisField = actionsLikeThis ? actionsLikeThis->value(":remove:") : 0;
-    if (removeActionForThisField) {
-        //if this field is going to be removed, do not add a new action
-        return;
-    }
-    // Case 2. other cases: just give up with adding this "intermediate" action
-    // so, e.g. [ setCaption(A, "captionA"), setCaption(A, "captionB") ]
-    //  becomes: [ setCaption(A, "captionB") ]
-    // because adding this action does nothing
-    ActionDict *nextActionsLikeThis = fieldActions.value(uid());   //fieldName().toLatin1() ];
-    if (!nextActionsLikeThis || !nextActionsLikeThis->value(m_propertyName.toLatin1())) {
-        //no such action, add this
-        AlterTableHandler::ChangeFieldPropertyAction* newAction
-            = new AlterTableHandler::ChangeFieldPropertyAction(*this);
-        if (!nextActionsLikeThis)
-            nextActionsLikeThis = createActionDict(fieldActions, uid());  //fieldName() );
-        nextActionsLikeThis->insert(m_propertyName.toLatin1(), newAction);
-    }
-}
-
-bool AlterTableHandler::ChangeFieldPropertyAction::shouldBeRemoved(ActionDictDict &fieldActions)
-{
-    Q_UNUSED(fieldActions);
-    return fieldName().toLower() == m_newValue.toString().toLower();
-}
-
-tristate AlterTableHandler::ChangeFieldPropertyAction::updateTableSchema(TableSchema &table, Field* field,
-        QHash<QString, QString>& fieldHash)
-{
-    //1. Simpler cases first: changes that do not affect table schema at all
-    // "caption", "description", "width", "visibleDecimalPlaces"
-    if (SchemaAlteringRequired & alteringTypeForProperty(m_propertyName.toLatin1())) {
-        bool result = KexiDB::setFieldProperty(*field, m_propertyName.toLatin1(), newValue());
-        return result;
-    }
-
-    if (m_propertyName == "name") {
-        if (fieldHash.value(field->name()) == field->name())
-            fieldHash.remove(field->name());
-        fieldHash.insert(newValue().toString(), field->name());
-        table.renameField(field, newValue().toString());
-        return true;
-    }
-    return cancelled;
-}
-
-/*! Many of the properties must be applied using a separate algorithm.
-*/
-tristate AlterTableHandler::ChangeFieldPropertyAction::execute(Connection &conn, TableSchema &table)
-{
-    Q_UNUSED(conn);
-    Field *field = table.field(fieldName());
-    if (!field) {
-        //! @todo errmsg
-        return false;
-    }
-    bool result;
-    //1. Simpler cases first: changes that do not affect table schema at all
-    // "caption", "description", "width", "visibleDecimalPlaces"
-    if (SchemaAlteringRequired & alteringTypeForProperty(m_propertyName.toLatin1())) {
-        result = KexiDB::setFieldProperty(*field, m_propertyName.toLatin1(), newValue());
-        return result;
-    }
-
-//todo
-    return true;
-
-    //2. Harder cases, that often require special care
-    if (m_propertyName == "name") {
-        /*mysql:
-         A. Get real field type (it's safer):
-            let <TYPE> be the 2nd "Type" column from result of "DESCRIBE tablename oldfieldname"
-          ( http://dev.mysql.com/doc/refman/5.0/en/describe.html )
-         B. Run "ALTER TABLE tablename CHANGE oldfieldname newfieldname <TYPE>";
-          ( http://dev.mysql.com/doc/refman/5.0/en/alter-table.html )
-        */
-    }
-    if (m_propertyName == "type") {
-        /*mysql:
-         A. Like A. for "name" property above
-         B. Construct <TYPE> string, eg. "varchar(50)" using the driver
-         C. Like B. for "name" property above
-         (mysql then truncate the values for changes like varchar -> integer,
-         and properly convert the values for changes like integer -> varchar)
-
-         TODO: more cases to check
-        */
-    }
-    if (m_propertyName == "maxLength") {
-        //use "select max( length(o_name) ) from kexi__Objects"
-
-    }
-    if (m_propertyName == "primaryKey") {
-//! @todo
-    }
-
-    /*
-         "name", "unsigned", "precision",
-         "defaultValue", "primaryKey", "unique", "notNull", "allowEmpty",
-         "autoIncrement", "indexed",
-
-
-      bool result = KexiDB::setFieldProperty(*field, m_propertyName.toLatin1(), newValue());
-    */
-    return result;
 }
 
 //--------------------------------------------------------
 
-AlterTableHandler::RemoveFieldAction::RemoveFieldAction(const QString& fieldName, int uid)
-        : FieldActionBase(fieldName, uid)
+AlterTableHandler::RemoveFieldAction::RemoveFieldAction(const QString& fieldName)
+        : FieldActionBase(fieldName)
 {
 }
 
@@ -489,59 +296,23 @@ AlterTableHandler::RemoveFieldAction::~RemoveFieldAction()
 {
 }
 
-void AlterTableHandler::RemoveFieldAction::updateAlteringRequirements()
+int AlterTableHandler::RemoveFieldAction::alteringRequirements() const
 {
 //! @todo sometimes add DataConversionRequired (e.g. when relationships require removing orphaned records) ?
-
-    setAlteringRequirements(PhysicalAlteringRequired);
+    return PhysicalAlteringRequired;
     //! @todo
 }
 
 QString AlterTableHandler::RemoveFieldAction::debugString(const DebugOptions& debugOptions)
 {
     QString s = QString("Remove table field \"%1\"").arg(fieldName());
-    if (debugOptions.showUID)
-        s.append(QString(" (UID=%1)").arg(uid()));
     return s;
-}
-
-/*!
- Legend: A,B==objects, P==property, [....]==action, (..,..,..) group of actions, <...> internal operation.
- Preconditions: we assume there cannot be such case encountered: ([remove A], [do something related on A])
-  (except for [remove A], [insert A])
- General Case: it's safe to always insert a [remove A] action.
-*/
-void AlterTableHandler::RemoveFieldAction::simplifyActions(ActionDictDict &fieldActions)
-{
-    //! @todo not checked
-    AlterTableHandler::RemoveFieldAction* newAction
-        = new AlterTableHandler::RemoveFieldAction(*this);
-    ActionDict *actionsLikeThis = fieldActions.value(uid());   //fieldName().toLatin1() ];
-    if (!actionsLikeThis)
-        actionsLikeThis = createActionDict(fieldActions, uid());   //fieldName() );
-    actionsLikeThis->insert(":remove:", newAction);   //special
-}
-
-tristate AlterTableHandler::RemoveFieldAction::updateTableSchema(TableSchema &table, Field* field,
-        QHash<QString, QString>& fieldHash)
-{
-    fieldHash.remove(field->name());
-    table.removeField(field);
-    return true;
-}
-
-tristate AlterTableHandler::RemoveFieldAction::execute(Connection& conn, TableSchema& table)
-{
-    Q_UNUSED(conn);
-    Q_UNUSED(table);
-    //! @todo
-    return true;
 }
 
 //--------------------------------------------------------
 
-AlterTableHandler::InsertFieldAction::InsertFieldAction(int fieldIndex, KexiDB::Field *field, int uid)
-        : FieldActionBase(field->name(), uid)
+AlterTableHandler::InsertFieldAction::InsertFieldAction(int fieldIndex, KexiDB::Field *field)
+        : FieldActionBase(field->name())
         , m_index(fieldIndex)
         , m_field(0)
 {
@@ -550,7 +321,7 @@ AlterTableHandler::InsertFieldAction::InsertFieldAction(int fieldIndex, KexiDB::
 }
 
 AlterTableHandler::InsertFieldAction::InsertFieldAction(const InsertFieldAction& action)
-        : FieldActionBase(action) //action.fieldName(), action.uid())
+        : FieldActionBase(action)
         , m_index(action.index())
 {
     m_field = new KexiDB::Field(*action.field());
@@ -576,11 +347,10 @@ void AlterTableHandler::InsertFieldAction::setField(KexiDB::Field* field)
     setFieldName(m_field ? m_field->name() : QString());
 }
 
-void AlterTableHandler::InsertFieldAction::updateAlteringRequirements()
+int AlterTableHandler::InsertFieldAction::alteringRequirements() const
 {
 //! @todo sometimes add DataConversionRequired (e.g. when relationships require removing orphaned records) ?
-
-    setAlteringRequirements(PhysicalAlteringRequired);
+    return PhysicalAlteringRequired;
     //! @todo
 }
 
@@ -588,117 +358,16 @@ QString AlterTableHandler::InsertFieldAction::debugString(const DebugOptions& de
 {
     QString s = QString("Insert table field \"%1\" at position %2")
                 .arg(m_field->name()).arg(m_index);
-    if (debugOptions.showUID)
-        s.append(QString(" (UID=%1)").arg(m_fieldUID));
     if (debugOptions.showFieldDebug)
         s.append(QString(" (%1)").arg(m_field->debugString()));
     return s;
 }
 
-/*!
- Legend: A,B==fields, P==property, [....]==action, (..,..,..) group of actions, <...> internal operation.
-
-
- Case 1: there are "change property" actions after the Insert action.
-  -> change the properties in the Insert action itself and remove the "change property" actions.
- Examples:
-   [Insert A] && [rename A to B] => [Insert B]
-   [Insert A] && [change property P in field A] => [Insert A with P altered]
- Comment: we need to do this reduction because otherwise we'd need to do psyhical altering
-  right after [Insert A] if [rename A to B] follows.
-*/
-void AlterTableHandler::InsertFieldAction::simplifyActions(ActionDictDict &fieldActions)
-{
-    // Try to find actions related to this action
-    ActionDict *actionsForThisField = fieldActions.value(uid());   //m_field->name().toLatin1() ];
-
-    ActionBase *removeActionForThisField = actionsForThisField ? actionsForThisField->value(":remove:") : 0;
-    if (removeActionForThisField) {
-        //if this field is going to be removed, do not add a new action
-        //and remove the "Remove" action
-        actionsForThisField->remove(":remove:");
-        return;
-    }
-    if (actionsForThisField) {
-        //collect property values that have to be changed in this field
-        QMap<QByteArray, QVariant> values;
-        ActionDict *newActionsForThisField = new ActionDict(); // this will replace actionsForThisField after the loop
-        QSet<ActionBase*> actionsToDelete; // used to collect actions taht we soon delete but cannot delete in the loop below
-        for (ActionDictConstIterator it(actionsForThisField->constBegin()); it != actionsForThisField->constEnd();++it) {
-            ChangeFieldPropertyAction* changePropertyAction = dynamic_cast<ChangeFieldPropertyAction*>(it.value());
-            if (changePropertyAction) {
-                //if this field is going to be renamed, also update fieldName()
-                if (changePropertyAction->propertyName() == "name") {
-                    setFieldName(changePropertyAction->newValue().toString());
-                }
-                values.insert(changePropertyAction->propertyName().toLatin1(), changePropertyAction->newValue());
-                //the subsequent "change property" action is no longer needed
-                actionsToDelete.insert(it.value());
-            } else {
-                //keep
-                newActionsForThisField->insert(it.key(), it.value());
-            }
-        }
-        qDeleteAll(actionsToDelete);
-        actionsForThisField->setAutoDelete(false);
-        delete actionsForThisField;
-        actionsForThisField = newActionsForThisField;
-        fieldActions.take(uid());
-        fieldActions.insert(uid(), actionsForThisField);
-        if (!values.isEmpty()) {
-            //update field, so it will be created as one step
-            KexiDB::Field *f = new KexiDB::Field(*field());
-            if (KexiDB::setFieldProperties(*f, values)) {
-                //field() = f;
-                setField(f);
-                field()->debug();
-#ifdef KEXI_DEBUG_GUI
-                KexiDB::alterTableActionDebugGUI(
-                    QString("** Property-set actions moved to field definition itself:\n") + field()->debugString(), 0);
-#endif
-            } else {
-#ifdef KEXI_DEBUG_GUI
-                KexiDB::alterTableActionDebugGUI(
-                    QString("** Failed to set properties for field ") + field()->debugString(), 0);
-#endif
-                KexiDBWarn << "AlterTableHandler::InsertFieldAction::simplifyActions(): KexiDB::setFieldProperties() failed!";
-                delete f;
-            }
-        }
-    }
-    //ok, insert this action
-    //! @todo not checked
-    AlterTableHandler::InsertFieldAction* newAction
-        = new AlterTableHandler::InsertFieldAction(*this);
-    if (!actionsForThisField)
-        actionsForThisField = createActionDict(fieldActions, uid());
-    actionsForThisField->insert(":insert:", newAction);   //special
-}
-
-tristate AlterTableHandler::InsertFieldAction::updateTableSchema(TableSchema &table, Field* field,
-        QHash<QString, QString>& fieldMap)
-{
-    //in most cases we won't add the field to fieldMap
-    Q_UNUSED(field);
-//! @todo add it only when there should be fixed value (e.g. default) set for this new field...
-    fieldMap.remove(this->field()->name());
-    table.insertField(index(), new Field(*this->field()));
-    return true;
-}
-
-tristate AlterTableHandler::InsertFieldAction::execute(Connection& conn, TableSchema& table)
-{
-    Q_UNUSED(conn);
-    Q_UNUSED(table);
-    //! @todo
-    return true;
-}
-
 //--------------------------------------------------------
 
 AlterTableHandler::MoveFieldPositionAction::MoveFieldPositionAction(
-    int fieldIndex, const QString& fieldName, int uid)
-        : FieldActionBase(fieldName, uid)
+    int fieldIndex, const QString& fieldName)
+        : FieldActionBase(fieldName)
         , m_index(fieldIndex)
 {
 }
@@ -712,9 +381,9 @@ AlterTableHandler::MoveFieldPositionAction::~MoveFieldPositionAction()
 {
 }
 
-void AlterTableHandler::MoveFieldPositionAction::updateAlteringRequirements()
+int AlterTableHandler::MoveFieldPositionAction::alteringRequirements() const
 {
-    setAlteringRequirements(MainSchemaAlteringRequired);
+    return MainSchemaAlteringRequired;
     //! @todo
 }
 
@@ -722,23 +391,7 @@ QString AlterTableHandler::MoveFieldPositionAction::debugString(const DebugOptio
 {
     QString s = QString("Move table field \"%1\" to position %2")
                 .arg(fieldName()).arg(m_index);
-    if (debugOptions.showUID)
-        s.append(QString(" (UID=%1)").arg(uid()));
     return s;
-}
-
-void AlterTableHandler::MoveFieldPositionAction::simplifyActions(ActionDictDict &fieldActions)
-{
-    Q_UNUSED(fieldActions);
-    //! @todo
-}
-
-tristate AlterTableHandler::MoveFieldPositionAction::execute(Connection& conn, TableSchema& table)
-{
-    Q_UNUSED(conn);
-    Q_UNUSED(table);
-    //! @todo
-    return true;
 }
 
 //--------------------------------------------------------
@@ -795,9 +448,9 @@ void AlterTableHandler::debug()
     }
 }
 
-TableSchema* AlterTableHandler::execute(const QString& tableName, ExecutionArguments& args)
+TableSchema* AlterTableHandler::execute(const QString& tableName, ExecutionArguments *args)
 {
-    args.result = false;
+    args->result = false;
     if (!d->conn) {
 //! @todo err msg?
         return 0;
@@ -816,308 +469,53 @@ TableSchema* AlterTableHandler::execute(const QString& tableName, ExecutionArgum
         return 0;
     }
 
-    if (!args.debugString)
+    if (!args->debugString)
         debug();
 
-    // Find a sum of requirements...
-    int allActionsCount = 0;
+    // 1. Apply actions to copied table
+    AlteredTableSchema alteredTable(oldTable);
+    QString dbg;
+    dbg = QString("** Input actions (%1):").arg(d->actions.count());
+    KexiDBDbg << dbg;
+#ifdef KEXI_DEBUG_GUI
+    if (args->simulate)
+        KexiDB::alterTableActionDebugGUI(dbg, 0);
+#endif
+    int i = 0;
     foreach(ActionBase* action, d->actions) {
-        action->updateAlteringRequirements();
-        action->m_order = allActionsCount++;
-    }
-
-    /* Simplify actions list if possible and check for errors
-
-    How to do it?
-    - track property changes/deletions in reversed order
-    - reduce intermediate actions
-
-    Trivial example 1:
-     *action1: "rename field a to b"
-     *action2: "rename field b to c"
-     *action3: "rename field c to d"
-
-     After reduction:
-     *action1: "rename field a to d"
-     Summing up: we have tracked what happens to field curently named "d"
-     and eventually discovered that it was originally named "a".
-
-    Trivial example 2:
-     *action1: "rename field a to b"
-     *action2: "rename field b to c"
-     *action3: "remove field b"
-     After reduction:
-     *action3: "remove field b"
-     Summing up: we have noticed that field "b" has beed eventually removed
-     so we needed to find all actions related to this field and remove them.
-     This is good optimization, as some of the eventually removed actions would
-     be difficult to perform and/or costly, what would be a waste of resources
-     and a source of unwanted questions sent to the user.
-    */
-
-
-
-    // Fields-related actions.
-    ActionDictDict fieldActions;
-//Qt 4 fieldActions.setAutoDelete(true);
-    ActionBase* action;
-    for (int i = d->actions.count() - 1; i >= 0; i--) {
-        d->actions[i]->simplifyActions(fieldActions);
-    }
-
-    if (!args.debugString)
-        debugFieldActions(fieldActions, args.simulate);
-
-    // Prepare actions for execution ----
-    // - Sort actions by order
-    ActionsVector actionsVector(allActionsCount);
-    int currentActionsCount = 0; //some actions may be removed
-    args.requirements = 0;
-    QSet<QString> fieldsWithChangedMainSchema; // Used to collect fields with changed main schema.
-    // This will be used when recreateTable is false to update kexi__fields
-    for (ActionDictDictConstIterator it(fieldActions.constBegin()); it != fieldActions.constEnd(); ++it) {
-        for (AlterTableHandler::ActionDictConstIterator it2(it.value()->constBegin());
-                it2 != it.value()->constEnd(); ++it2, ++currentActionsCount) {
-            if (it2.value()->shouldBeRemoved(fieldActions))
-                continue;
-            actionsVector[ it2.value()->m_order ] = it2.value();
-            // a sum of requirements...
-            const int r = it2.value()->alteringRequirements();
-            args.requirements |= r;
-            if (r & MainSchemaAlteringRequired && dynamic_cast<ChangeFieldPropertyAction*>(it2.value())) {
-                // Remember, this will be used when recreateTable is false to update kexi__fields, below.
-                fieldsWithChangedMainSchema.insert(
-                    dynamic_cast<ChangeFieldPropertyAction*>(it2.value())->fieldName());
-            }
+        debugAction(action, 1, args->simulate, QString("%1: ").arg(i + 1), args->debugString);
+        if (!alteredTable.applyAction(action)) {
+            //! @todo err msg?
+            return 0;
         }
+        ++i;
     }
-    // - Debug
-    QString dbg = QString("** Overall altering requirements: %1").arg(args.requirements);
-    KexiDBDbg << dbg;
 
-    if (args.onlyComputeRequirements) {
-        args.result = true;
+    // 2. Execute physical altering
+    if (!alteredTable.execute(d->conn, args)) {
         return 0;
     }
 
-    const bool recreateTable = (args.requirements & PhysicalAlteringRequired);
-
-#ifdef KEXI_DEBUG_GUI
-    if (args.simulate)
-        KexiDB::alterTableActionDebugGUI(dbg, 0);
-#endif
-    dbg = QString("** Ordered, simplified actions (%1, was %2):")
-          .arg(currentActionsCount).arg(allActionsCount);
+#if 0
+    // 2. Compute altering requirements
+    args.requirements = alteredTable.alteringRequirements();
+    dbg = QString("** Overall altering requirements: %1").arg(args.requirements);
     KexiDBDbg << dbg;
 #ifdef KEXI_DEBUG_GUI
     if (args.simulate)
         KexiDB::alterTableActionDebugGUI(dbg, 0);
 #endif
-    for (int i = 0; i < allActionsCount; i++) {
-        debugAction(actionsVector.at(i), 1, args.simulate, QString("%1: ").arg(i + 1), args.debugString);
-    }
-
-    if (args.requirements == 0) {//nothing to do
-        args.result = true;
-        return oldTable;
-    }
-    if (args.simulate) {//do not execute
-        args.result = true;
-        return oldTable;
-    }
-// @todo transaction!
-
-    // Create new TableSchema
-    TableSchema *newTable = recreateTable ? new TableSchema(*oldTable, false/*!copy id*/) : oldTable;
-    // find nonexisting temp name for new table schema
-    if (recreateTable) {
-        QString tempDestTableName;
-        while (true) {
-            tempDestTableName = QString("%1_temp%2%3").arg(newTable->name()).arg(QString::number(rand(), 16)).arg(QString::number(rand(), 16));
-            if (!d->conn->tableSchema(tempDestTableName))
-                break;
-        }
-        newTable->setName(tempDestTableName);
-    }
-    oldTable->debug();
-    if (recreateTable && !args.debugString)
-        newTable->debug();
-
-    // Update table schema in memory ----
-    int lastUID = -1;
-    Field *currentField = 0;
-    QHash<QString, QString> fieldHash; // a map from new value to old value
-    foreach(Field* f, *newTable->fields()) {
-        fieldHash.insert(f->name(), f->name());
-    }
-    for (int i = 0; i < allActionsCount; i++) {
-        action = actionsVector.at(i);
-        if (!action)
-            continue;
-        //remember the current Field object because soon we may be unable to find it by name:
-        FieldActionBase *fieldAction = dynamic_cast<FieldActionBase*>(action);
-        if (!fieldAction) {
-            currentField = 0;
-        } else {
-            if (lastUID != fieldAction->uid()) {
-                currentField = newTable->field(fieldAction->fieldName());
-                lastUID = currentField ? fieldAction->uid() : -1;
-            }
-            InsertFieldAction *insertFieldAction = dynamic_cast<InsertFieldAction*>(action);
-            if (insertFieldAction && insertFieldAction->index() > (int)newTable->fieldCount()) {
-                //update index: there can be empty rows
-                insertFieldAction->setIndex(newTable->fieldCount());
-            }
-        }
-        //if (!currentField)
-        // continue;
-        args.result = action->updateTableSchema(*newTable, currentField, fieldHash);
-        if (args.result != true) {
-            if (recreateTable)
-                delete newTable;
-            return 0;
-        }
-    }
-
-    if (recreateTable) {
-        // Create the destination table with temporary name
-        if (!d->conn->createTable(newTable, false)) {
-            setError(d->conn);
-            delete newTable;
-            args.result = false;
-            return 0;
-        }
-    }
-
-#if 0//todo
-    // Execute actions ----
-    for (int i = 0; i < allActionsCount; i++) {
-        action = actionsVector.at(i);
-        if (!action)
-            continue;
-        args.result = action->execute(*d->conn, *newTable);
-        if (!args.result || ~args.result) {
-//! @todo delete newTable...
-            args.result = false;
-            return 0;
-        }
-    }
 #endif
 
-    // update extended table schema after executing the actions
-    if (!d->conn->storeExtendedTableSchemaData(*newTable)) {
-//! @todo better errmsg?
-        setError(d->conn);
-//! @todo delete newTable...
-        args.result = false;
-        return 0;
+    if (args->onlyComputeRequirements) {
+        args->result = true;
+        return oldTable;
     }
-
-    if (recreateTable) {
-        // Copy the data:
-        // Build "INSERT INTO ... SELECT FROM ..." SQL statement
-        // The order is based on the order of the source table fields.
-        // Notes:
-        // -Some source fields can be skipped in case when there are deleted fields.
-        // -Some destination fields can be skipped in case when there
-        //  are new empty fields without fixed/default value.
-        QString sql = QString("INSERT INTO %1 (").arg(d->conn->escapeIdentifier(newTable->name()));
-        //insert list of dest. fields
-        bool first = true;
-        QString sourceFields;
-        foreach(Field* f, *newTable->fields()) {
-            QString renamedFieldName(fieldHash.value(f->name()));
-            QString sourceSQLString;
-            if (!renamedFieldName.isEmpty()) {
-                //this field should be renamed
-                sourceSQLString = d->conn->escapeIdentifier(renamedFieldName);
-            } else if (!f->defaultValue().isNull()) {
-                //this field has a default value defined
-//! @todo support expressions (eg. TODAY()) as a default value
-//! @todo this field can be notNull or notEmpty - check whether the default is ok
-//!       (or do this checking also in the Table Designer?)
-                sourceSQLString = d->conn->driver()->valueToSQL(f->type(), f->defaultValue());
-            } else if (f->isNotNull()) {
-                //this field cannot be null
-                sourceSQLString = d->conn->driver()->valueToSQL(
-                                      f->type(), KexiDB::emptyValueForType(f->type()));
-            } else if (f->isNotEmpty()) {
-                //this field cannot be empty - use any nonempty value..., e.g. " " for text or 0 for number
-                sourceSQLString = d->conn->driver()->valueToSQL(
-                                      f->type(), KexiDB::notEmptyValueForType(f->type()));
-            }
-//! @todo support unique, validatationRule, unsigned flags...
-//! @todo check for foreignKey values...
-
-            if (!sourceSQLString.isEmpty()) {
-                if (first) {
-                    first = false;
-                } else {
-                    sql.append(", ");
-                    sourceFields.append(", ");
-                }
-                sql.append(d->conn->escapeIdentifier(f->name()));
-                sourceFields.append(sourceSQLString);
-            }
-        }
-        sql.append(QString(") SELECT ") + sourceFields + " FROM " + oldTable->name());
-        KexiDBDbg << " ** " << sql;
-        if (!d->conn->executeSQL(sql)) {
-            setError(d->conn);
-//! @todo delete newTable...
-            args.result = false;
-            return 0;
-        }
-
-        const QString oldTableName = oldTable->name();
-        /*  args.result = d->conn->dropTable( oldTable );
-            if (!args.result || ~args.result) {
-              setError(d->conn);
-        //! @todo delete newTable...
-              return 0;
-            }
-            oldTable = 0;*/
-
-        // Replace the old table with the new one (oldTable will be destroyed)
-        if (!d->conn->alterTableName(*newTable, oldTableName, true /*replace*/)) {
-            setError(d->conn);
-//! @todo delete newTable...
-            args.result = false;
-            return 0;
-        }
-        oldTable = 0;
+    if (args->simulate) {//do not execute
+        args->result = true;
+        return oldTable;
     }
-
-    if (!recreateTable) {
-        if ((MainSchemaAlteringRequired & args.requirements) && !fieldsWithChangedMainSchema.isEmpty()) {
-            //update main schema (kexi__fields) for changed fields
-            foreach(const QString& changeFieldPropertyActionName, fieldsWithChangedMainSchema) {
-                Field *f = newTable->field(changeFieldPropertyActionName);
-                if (f) {
-                    if (!d->conn->storeMainFieldSchema(f)) {
-                        setError(d->conn);
-                        //! @todo delete newTable...
-                        args.result = false;
-                        return 0;
-                    }
-                }
-            }
-        }
-    }
-    args.result = true;
-    return newTable;
+    args->result = true;
+    TableSchema *newTable = alteredTable.detachNewTable();
+    return newTable ? newTable : oldTable;
 }
-
-/*TableSchema* AlterTableHandler::execute(const QString& tableName, tristate &result, bool simulate)
-{
-  return executeInternal( tableName, result, simulate, 0 );
-}
-
-tristate AlterTableHandler::simulateExecution(const QString& tableName, QString& debugString)
-{
-  tristate result;
-  (void)executeInternal( tableName, result, true//simulate
-  , &debugString );
-  return result;
-}
-*/

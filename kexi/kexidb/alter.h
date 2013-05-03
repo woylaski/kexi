@@ -180,10 +180,7 @@ public:
         class DebugOptions
         {
         public:
-            DebugOptions() : showUID(true), showFieldDebug(false) {}
-
-            //! true if UID should be added to the action debug string (the default)
-            bool showUID;
+            DebugOptions() : showFieldDebug(false) {}
 
             //! true if the field associated with the action (if exists) should
             //! be appended to the debug string (default is false)
@@ -198,47 +195,18 @@ public:
             << " (req = " << alteringRequirements() << ")";
         }
 
+        //! @return requirements for altering; used internally by AlterTableHandler object
+        virtual int alteringRequirements() const = 0;
+
     protected:
-        //! Sets requirements for altering; used internally by AlterTableHandler object
-        void setAlteringRequirements(int alteringRequirements) {
-            m_alteringRequirements = alteringRequirements;
-        }
+//        //! Sets requirements for altering; used internally by AlterTableHandler object
+//        void setAlteringRequirements(int alteringRequirements) {
+//            m_alteringRequirements = alteringRequirements;
+//        }
 
-        int alteringRequirements() const {
-            return m_alteringRequirements;
-        }
-
-        virtual void updateAlteringRequirements() {}
-
-        /*! Simplifies \a fieldActions dictionary. If this action has to be inserted
-         Into the dictionary, an ActionDict is created first and then a copy of this action
-         is inserted into it. */
-        virtual void simplifyActions(ActionDictDict &fieldActions) {
-            Q_UNUSED(fieldActions);
-        }
-
-        /*! After calling simplifyActions() for each action,
-         shouldBeRemoved() is called for them as an additional step.
-         This is used for ChangeFieldPropertyAction items so actions
-         that do not change property values are removed. */
-        virtual bool shouldBeRemoved(ActionDictDict &fieldActions) {
-            Q_UNUSED(fieldActions); return false;
-        }
-
-        virtual tristate updateTableSchema(TableSchema &table, Field* field,
-                                           QHash<QString, QString>& fieldHash) {
-            Q_UNUSED(table); Q_UNUSED(field); Q_UNUSED(fieldHash); return true;
-        }
+//        virtual void updateAlteringRequirements() {}
 
     private:
-        //! Performs physical execution of this action.
-        virtual tristate execute(Connection& /*conn*/, TableSchema& /*table*/) {
-            return true;
-        }
-
-        //! requirements for altering; used internally by AlterTableHandler object
-        int m_alteringRequirements;
-
         //! @internal used for "simplify" algorithm
         int m_order;
 
@@ -251,7 +219,7 @@ public:
     class KEXI_DB_EXPORT FieldActionBase : public ActionBase
     {
     public:
-        FieldActionBase(const QString& fieldName, int uid);
+        FieldActionBase(const QString& fieldName);
         FieldActionBase(bool);
         virtual ~FieldActionBase();
 
@@ -260,28 +228,11 @@ public:
             return m_fieldName;
         }
 
-        /*! \return field's unique identifier
-         This id is needed because in the meantime there can be more than one
-         field sharing the same name, so we need to identify them unambiguously.
-         After the (valid) altering is completed all the names will be unique.
-
-         Example scenario when user exchanged the field names:
-         1. At the beginning: [field A], [field B]
-         2. Rename the 1st field to B: [field B], [field B]
-         3. Rename the 2nd field to A: [field B], [field A] */
-        int uid() const {
-            return m_fieldUID;
-        }
-
         //! Sets field name for this action
         void setFieldName(const QString& fieldName) {
             m_fieldName = fieldName;
         }
 
-    protected:
-
-        //! field's unique identifier, @see uid()
-        int m_fieldUID;
     private:
         QString m_fieldName;
     };
@@ -298,7 +249,7 @@ public:
     {
     public:
         ChangeFieldPropertyAction(const QString& fieldName,
-                                  const QString& propertyName, const QVariant& newValue, int uid);
+                                  const QString& propertyName, const QVariant& newValue);
         //! @internal, used for constructing null action
         ChangeFieldPropertyAction(bool null);
         virtual ~ChangeFieldPropertyAction();
@@ -311,18 +262,9 @@ public:
         }
         virtual QString debugString(const DebugOptions& debugOptions = DebugOptions());
 
-        virtual void simplifyActions(ActionDictDict &fieldActions);
-
-        virtual bool shouldBeRemoved(ActionDictDict &fieldActions);
-
-        virtual tristate updateTableSchema(TableSchema &table, Field* field,
-                                           QHash<QString, QString>& fieldHash);
-
+        virtual int alteringRequirements() const;
     protected:
-        virtual void updateAlteringRequirements();
-
-        //! Performs physical execution of this action.
-        virtual tristate execute(Connection &conn, TableSchema &table);
+//        virtual void updateAlteringRequirements();
 
         QString m_propertyName;
         QVariant m_newValue;
@@ -332,29 +274,23 @@ public:
     class KEXI_DB_EXPORT RemoveFieldAction : public FieldActionBase
     {
     public:
-        RemoveFieldAction(const QString& fieldName, int uid);
+        RemoveFieldAction(const QString& fieldName);
         RemoveFieldAction(bool);
         virtual ~RemoveFieldAction();
 
         virtual QString debugString(const DebugOptions& debugOptions = DebugOptions());
 
-        virtual void simplifyActions(ActionDictDict &fieldActions);
-
-        virtual tristate updateTableSchema(TableSchema &table, Field* field,
-                                           QHash<QString, QString>& fieldHash);
-
+        virtual int alteringRequirements() const;
     protected:
-        virtual void updateAlteringRequirements();
+//        virtual void updateAlteringRequirements();
 
-        //! Performs physical execution of this action.
-        virtual tristate execute(Connection &conn, TableSchema &table);
     };
 
     //! Defines an action for inserting a single table field.
     class KEXI_DB_EXPORT InsertFieldAction : public FieldActionBase
     {
     public:
-        InsertFieldAction(int fieldIndex, KexiDB::Field *newField, int uid);
+        InsertFieldAction(int fieldIndex, KexiDB::Field *newField);
         //copy ctor
         InsertFieldAction(const InsertFieldAction& action);
         InsertFieldAction(bool);
@@ -372,16 +308,9 @@ public:
         void setField(KexiDB::Field* field);
         virtual QString debugString(const DebugOptions& debugOptions = DebugOptions());
 
-        virtual void simplifyActions(ActionDictDict &fieldActions);
-
-        virtual tristate updateTableSchema(TableSchema &table, Field* field,
-                                           QHash<QString, QString>& fieldHash);
-
+        virtual int alteringRequirements() const;
     protected:
-        virtual void updateAlteringRequirements();
-
-        //! Performs physical execution of this action.
-        virtual tristate execute(Connection &conn, TableSchema &table);
+//        virtual void updateAlteringRequirements();
 
         int m_index;
 
@@ -394,7 +323,7 @@ public:
     class KEXI_DB_EXPORT MoveFieldPositionAction : public FieldActionBase
     {
     public:
-        MoveFieldPositionAction(int fieldIndex, const QString& fieldName, int uid);
+        MoveFieldPositionAction(int fieldIndex, const QString& fieldName);
         MoveFieldPositionAction(bool);
         virtual ~MoveFieldPositionAction();
 
@@ -403,13 +332,9 @@ public:
         }
         virtual QString debugString(const DebugOptions& debugOptions = DebugOptions());
 
-        virtual void simplifyActions(ActionDictDict &fieldActions);
-
+        virtual int alteringRequirements() const;
     protected:
-        virtual void updateAlteringRequirements();
-
-        //! Performs physical execution of this action.
-        virtual tristate execute(Connection &conn, TableSchema &table);
+//        virtual void updateAlteringRequirements();
 
         int m_index;
     };
@@ -447,7 +372,8 @@ public:
                 , requirements(0)
                 , result(false)
                 , simulate(false)
-                , onlyComputeRequirements(false) {
+                , onlyComputeRequirements(false)
+                , withinTransaction(true) {
         }
         /*! If not 0, debug is directed here. Used only in the alter table test suite. */
         QString* debugString;
@@ -460,6 +386,10 @@ public:
         /*! Set to true if requirements should be computed
          and the execute() method should return afterwards. */
         bool onlyComputeRequirements;
+        /*! True if execution should be enclosed in database transaction.
+         true by default but it is set to false by Table Designer where transaction
+         is already started. */
+        bool withinTransaction;
     };
 
     /*! Performs table alteration using predefined actions for table named \a tableName,
@@ -481,7 +411,7 @@ public:
      \return the new table schema object created as a result of schema altering.
      The old table is returned if recreating table schema was not necessary or args.simulate is true.
      0 is returned if args.result is not true. */
-    TableSchema* execute(const QString& tableName, ExecutionArguments & args);
+    TableSchema* execute(const QString& tableName, ExecutionArguments *args);
 
     //! Displays debug information about all actions collected by the handler.
     void debug();
@@ -499,9 +429,6 @@ public:
     static int alteringTypeForProperty(const QByteArray& propertyName);
 
 protected:
-//  TableSchema* executeInternal(const QString& tableName, tristate& result, bool simulate = false,
-//   QString* debugString = 0);
-
     class Private;
     Private * const d;
 };

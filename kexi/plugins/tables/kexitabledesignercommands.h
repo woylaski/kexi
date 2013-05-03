@@ -38,8 +38,8 @@ namespace KexiTableDesignerCommands
 class Command : public KUndo2Command
 {
 public:
-    Command(const QString &text, Command *parent, KexiTableDesignerView* view);
-    Command(Command* parent, KexiTableDesignerView* view);
+    Command(int uid, const QString &text, Command *parent, KexiTableDesignerView* view);
+    Command(int uid, Command* parent, KexiTableDesignerView* view);
     virtual ~Command();
 
     //! Used to collect actions data for AlterTableHandler
@@ -58,11 +58,14 @@ public:
     //! Enables or disabled redo(). Needed for pushing action on stack without executing it.
     //! True by default.
     void setRedoEnabled(bool enabled);
+
+    int uid() const;
 protected:
     virtual void redoInternal();
     virtual void undoInternal();
     QPointer<KexiTableDesignerView> m_view;
     bool m_redoEnabled;
+    int m_uid;
 };
 
 //! @short Undo/redo command used for when changing a property for a table field
@@ -92,7 +95,6 @@ public:
 protected:
     KexiDB::AlterTableHandler::ChangeFieldPropertyAction m_alterTableAction;
     QVariant m_oldValue;
-//  int m_fieldUID;
     KoProperty::Property::ListData* m_oldListData, *m_listData;
 };
 

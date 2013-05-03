@@ -31,6 +31,12 @@ KexiTableDesigner_DataView::KexiTableDesigner_DataView(QWidget *parent)
         : KexiDataTable(parent, true/*db-aware*/)
 {
     setObjectName("KexiTableDesigner_DataView");
+    KexiUtils::WaitCursor wait;
+    KexiDB::Cursor *c = KexiMainWindowIface::global()->project()->dbConnection()->prepareQuery(
+          *tempData()->table);
+    if (c) {
+        setData(c);
+    }
 }
 
 KexiTableDesigner_DataView::~KexiTableDesigner_DataView()
@@ -68,7 +74,7 @@ tristate KexiTableDesigner_DataView::afterSwitchFrom(Kexi::ViewMode mode)
 {
     Q_UNUSED(mode);
 
-    if (tempData()->tableSchemaChangedInPreviousView) {
+    /*if (tempData()->tableSchemaChangedInPreviousView) {
         KexiUtils::WaitCursor wait;
         KexiDB::Cursor *c
         = KexiMainWindowIface::global()->project()->dbConnection()->prepareQuery(
@@ -77,7 +83,7 @@ tristate KexiTableDesigner_DataView::afterSwitchFrom(Kexi::ViewMode mode)
             return false;
         setData(c);
         tempData()->tableSchemaChangedInPreviousView = false;
-    }
+    }*/
     return true;
 }
 

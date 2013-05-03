@@ -291,7 +291,7 @@ KexiTableDataSource::cursor(KexiProject * /*project*/,
 KexiTablePart::TempData::TempData(QObject* parent)
         : KexiWindowData(parent)
         , table(0)
-        , tableSchemaChangedInPreviousView(true /*to force reloading on startup*/)
+        , tableSchemaChangedInPreviousView(false) //true /*to force reloading on startup*/)
 {
 }
 

@@ -648,6 +648,12 @@ tristate KexiTableDesignerView::beforeSwitchTo(Kexi::ViewMode mode, bool &dontSt
 //    setDirty(false);
         }
 //</temporary>
+        if (tempData()->tableSchemaChangedInPreviousView) {
+            KexiView *v = window()->viewForMode(Kexi::DataViewMode);
+            removeView(Kexi::DataViewMode);
+            delete v; // remove view because table has probably changed
+            tempData()->tableSchemaChangedInPreviousView = false;
+        }
         //todo
         return res;
     } else if (mode == Kexi::TextViewMode) {
@@ -693,7 +699,7 @@ void KexiTableDesignerView::slotBeforeCellChanged(
 
             //remember this action containing 2 subactions
             //Parent command is a Command containing 2 child commands
-            Command *changeCaptionAndNameCommand = new Command(
+            Command *changeCaptionAndNameCommand = new Command(-1,
                 i18n(
                     "Change \"%1\" field's name to \"%2\" and caption from \"%3\" to \"%4\"",
                     oldName, propertySetForRecord->property("name").value().toString(),
@@ -772,7 +778,7 @@ void KexiTableDesignerView::slotBeforeCellChanged(
         kDebug() << subTypeProperty->value();
 
         // *** this action contains subactions ***
-        Command *changeDataTypeCommand = new Command(
+        Command *changeDataTypeCommand = new Command(-1,
             i18n("Change data type for field \"%1\" to \"%2\"",
                  set["name"].value().toString(), KexiDB::Field::typeName(fieldType)), 0, this);
 
@@ -981,12 +987,12 @@ void KexiTableDesignerView::slotPropertyChanged(KoProperty::Set& set, KoProperty
                 setPrimaryKey = true;
                 //switchPrimaryKey(set, true);
                 // this will be toplevel command
-                setAutonumberCommand = new Command(
+                setAutonumberCommand = new Command(-1,
                     i18n("Assign autonumber for field \"%1\"", set["name"].value().toString()), 0, this);
                 toplevelCommand = setAutonumberCommand;
                 d->setPropertyValueIfNeeded(set, "autoIncrement", QVariant(true), setAutonumberCommand);
             } else {
-                setAutonumberCommand = new Command(
+                setAutonumberCommand = new Command(-1,
                     i18n("Remove autonumber from field \"%1\"", set["name"].value().toString()),
                     0, this);
                 //d->slotPropertyChanged_enabled = false;
@@ -1007,7 +1013,7 @@ void KexiTableDesignerView::slotPropertyChanged(KoProperty::Set& set, KoProperty
         changePrimaryKey = true;
         setPrimaryKey = false;
         // this will be toplevel command
-        Command *unsetIndexedOrUniquOrNotNullCommand = new Command(
+        Command *unsetIndexedOrUniquOrNotNullCommand = new Command(-1,
             i18n("Set \"%1\" property for field \"%2\"",
                  property.caption(), set["name"].value().toString()), 0, this);
         toplevelCommand = unsetIndexedOrUniquOrNotNullCommand;
@@ -1053,7 +1059,7 @@ void KexiTableDesignerView::slotPropertyChanged(KoProperty::Set& set, KoProperty
 //  kDebug() << property.value().toString();
 //  kDebug() << set["type"].value();
 //  if (KexiDB::Field::typeGroup( set["type"].value().toInt() ) == (int)KexiDB::Field::TextGroup) {
-        Command* changeFieldTypeCommand = new Command(
+        Command* changeFieldTypeCommand = new Command(-1,
             i18n(
                 "Change type for field \"%1\" to \"%2\"",
                 set["name"].value().toString(), typeName), 0, this);
@@ -1100,7 +1106,7 @@ void KexiTableDesignerView::slotPropertyChanged(KoProperty::Set& set, KoProperty
 //   d->addHistoryCommand_in_slotPropertyChanged_enabled = false;
 
             //this action contains subactions
-            Command * setPrimaryKeyCommand = new Command(
+            Command * setPrimaryKeyCommand = new Command(-1,
                 i18n("Set primary key for field \"%1\"",
                      set["name"].value().toString()), toplevelCommand, this);
             if (!toplevelCommand) {
@@ -1125,7 +1131,7 @@ void KexiTableDesignerView::slotPropertyChanged(KoProperty::Set& set, KoProperty
 //down   addHistoryCommand( toplevelCommand, false /* !execute */ );
         } else {//! set PK to false
             //remember this action containing 2 subactions
-            Command *setPrimaryKeyCommand = new Command(
+            Command *setPrimaryKeyCommand = new Command(-1,
                 i18n("Unset primary key for field \"%1\"",
                      set["name"].value().toString()), toplevelCommand, this);
             if (!toplevelCommand) {
@@ -1478,7 +1484,7 @@ tristate KexiTableDesignerView::storeData(bool dontAsk)
     KexiDB::AlterTableHandler::ActionList actions;
     tristate res = buildAlterTableActions(actions);
 //!< @todo this is temporary flag before we switch entirely to real alter table
-    bool realAlterTableCanBeUsed = false;
+/*    bool realAlterTableCanBeUsed = false;
     if (res == true) {
         alterTableHandler = new KexiDB::AlterTableHandler(*conn);
         alterTableHandler->setActions(actions);
@@ -1487,6 +1493,7 @@ tristate KexiTableDesignerView::storeData(bool dontAsk)
             //only compute requirements
             KexiDB::AlterTableHandler::ExecutionArguments args;
             args.onlyComputeRequirements = true;
+            args.withinTransaction = false; // transaction already created in KexiWindow::storeData()
             (void)alterTableHandler->execute(tempData()->table->name(), args);
             res = args.result;
             if (   res == true
@@ -1495,7 +1502,7 @@ tristate KexiTableDesignerView::storeData(bool dontAsk)
                 realAlterTableCanBeUsed = true;
             }
         }
-    }
+    }*/
 
     if (res == true) {
         res = KexiTablePart::askForClosingObjectsUsingTableSchema(
@@ -1505,10 +1512,11 @@ tristate KexiTableDesignerView::storeData(bool dontAsk)
                        tempData()->table->name()));
     }
 
+    bool emptyTable;
+    const QString msg = d->messageForSavingChanges(emptyTable);
     if (res == true) {
-        if (!d->tempStoreDataUsingRealAlterTable && !realAlterTableCanBeUsed) {
-//! @todo temp; remove this case:
-            delete alterTableHandler;
+        if (emptyTable) {
+            /*delete alterTableHandler;
             alterTableHandler = 0;
             // - inform about removing the current table and ask for confirmation
             if (!d->dontAskOnStoreData && !dontAsk) {
@@ -1523,12 +1531,11 @@ tristate KexiTableDesignerView::storeData(bool dontAsk)
             if (~res) {
                 d->recentResultOfStoreData = res;
                 return res;
-            }
+            }*/
             // keep old behaviour:
             newTable = new KexiDB::TableSchema();
             // copy the schema data
-            static_cast<KexiDB::SchemaData&>(*newTable)
-                = static_cast<KexiDB::SchemaData&>(*tempData()->table);
+            static_cast<KexiDB::SchemaData&>(*newTable) = static_cast<KexiDB::SchemaData&>(*tempData()->table);
             res = buildSchema(*newTable);
             kDebug() << "BUILD SCHEMA:";
             newTable->debug();
@@ -1536,12 +1543,18 @@ tristate KexiTableDesignerView::storeData(bool dontAsk)
             res = conn->alterTable(*tempData()->table, *newTable);
             if (res != true)
                 window()->setStatus(conn, "");
-        } else {
+        }
+        else {
             KexiDB::AlterTableHandler::ExecutionArguments args;
-            newTable = alterTableHandler->execute(tempData()->table->name(), args);
+            args.withinTransaction = false; // transaction already created in KexiWindow::storeData()
+            alterTableHandler = new KexiDB::AlterTableHandler(*conn);
+            alterTableHandler->setActions(actions);
+            newTable = alterTableHandler->execute(tempData()->table->name(), &args);
+            if (newTable == tempData()->table) {
+                newTable = 0; // not a new table
+            }
             res = args.result;
-            kDebug() << "ALTER TABLE EXECUTE: "
-            << res.toString();
+            kDebug() << "ALTER TABLE EXECUTE: " << res.toString();
             if (true != res) {
                 alterTableHandler->debugError();
                 window()->setStatus(alterTableHandler, "");
@@ -1550,7 +1563,9 @@ tristate KexiTableDesignerView::storeData(bool dontAsk)
     }
     if (res == true) {
         //change current schema
-        tempData()->table = newTable;
+        if (newTable) {
+            tempData()->table = newTable;
+        }
         tempData()->tableSchemaChangedInPreviousView = true;
         d->history->clear();
     } else {
@@ -1583,7 +1598,7 @@ tristate KexiTableDesignerView::simulateAlterTableExecution(QString *debugTarget
     } else {
         args.simulate = true;
     }
-    (void)alterTableHandler.execute(tempData()->table->name(), args);
+    (void)alterTableHandler.execute(tempData()->table->name(), &args);
     return args.result;
 # else
     Q_UNUSED(debugTarget);
@@ -1956,7 +1971,7 @@ bool KexiTableDesignerView::isPhysicalAlteringNeeded()
     //only compute requirements
     KexiDB::AlterTableHandler::ExecutionArguments args;
     args.onlyComputeRequirements = true;
-    (void)alterTableHandler->execute(tempData()->table->name(), args);
+    (void)alterTableHandler->execute(tempData()->table->name(), &args);
     res = args.result;
     delete alterTableHandler;
     if (   res == true

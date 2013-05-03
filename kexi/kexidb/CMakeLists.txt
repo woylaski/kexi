@@ -8,6 +8,7 @@ include_directories(${KDE4_INCLUDES})
 set(kexidb_LIB_SRCS
    dbobjectnamevalidator.cpp
    fieldvalidator.cpp
+   alteredtableschema.cpp
    alter.cpp
 )
 
@@ -30,3 +31,5 @@ if(FALSE) # TODO: install when we move to independent place
    install( FILES
    DESTINATION ${INCLUDE_INSTALL_DIR}/kexidb COMPONENT Devel)
 endif(FALSE)
+
+add_subdirectory(tests)

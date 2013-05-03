@@ -47,6 +47,7 @@ class ConnectionPrivate;
 class RowEditBuffer;
 class DatabaseProperties;
 class AlterTableHandler;
+class AlteredTableSchema;
 
 /*! @short Provides database connection, allowing queries and data modification.
 
@@ -1287,6 +1288,7 @@ private:
     friend class KexiDB::DatabaseProperties; //!< for setError()
     friend class ConnectionPrivate;
     friend class KexiDB::AlterTableHandler;
+    friend class KexiDB::AlteredTableSchema;
 };
 
 /*! \return "SELECT ..." statement's string needed for executing query
