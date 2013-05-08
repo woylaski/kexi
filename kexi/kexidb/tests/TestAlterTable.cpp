@@ -1,5 +1,5 @@
 /* This file is part of the KDE project
-   Copyright (C) 2012 Jarosław Staniek <staniek@kde.org>
+   Copyright (C) 2012-2013 Jarosław Staniek <staniek@kde.org>
 
    This program is free software; you can redistribute it and/or
    modify it under the terms of the GNU Library General Public
@@ -32,6 +32,11 @@
 #include <QTest>
 
 #define FILES_DATA_DIR KDESRCDIR "data/"
+
+#define JOIN2(a, b) a#b
+#define JOIN(a, b) JOIN2( a, b) // indirection needed because only function-like macro parameters can be pasted
+
+#define STRINGIFY(s) JOIN("", s)
 
 using namespace KexiDB;
 
@@ -175,20 +180,33 @@ static bool compareData(const QList<KexiDB::RecordData*> &records,
     return true;
 }
 
+//! Finds table @a tableName and allocates pointer named t_<tableName> and initializes it.
+//! Verifies the result, on failure sets friendly message.
+#define GET_TABLE(tableName) \
+    TableSchema *t_##tableName = m_conn->tableSchema(STRINGIFY(tableName)); \
+    QVERIFY2(t_##tableName, "table \"" STRINGIFY(tableName) "\" not found")
+
+//! Finds field @a fieldName for table @a tableName and allocates pointer named
+//! f_<tableName>_<fieldName> and initializes it.
+//! Verifies the result, on failure sets friendly message.
+#define GET_FIELD(tableName, fieldName) \
+    Field *f_##tableName##_##fieldName; \
+    { \
+        GET_TABLE(tableName); \
+        f_##tableName##_##fieldName = t_##tableName->field(STRINGIFY(fieldName)); \
+        QVERIFY2(f_##tableName##_##fieldName, "field \"" STRINGIFY(tableName) "." STRINGIFY(fieldName) "\" not found"); \
+    }
+
 void TestAlterTable::testAddLookupToField()
 {
     m_conn = openSqliteFile("cars_persons_nocombo");
     QVERIFY(m_conn);
 
     AlterTableHandler::ActionList actions;
-    TableSchema *t_cars = m_conn->tableSchema("cars");
-    QVERIFY2(t_cars, "cars table not found");
-    TableSchema *t_persons = m_conn->tableSchema("persons");
-    QVERIFY2(t_persons, "persons table not found");
-    Field *f_id = t_persons->field("id");
-    QVERIFY2(f_id, "persons.id field not found");
-    Field *f_name = t_persons->field("name");
-    QVERIFY2(f_name, "persons.name field not found");
+    GET_TABLE(cars);
+    GET_TABLE(persons);
+    GET_FIELD(persons, id);
+    GET_FIELD(persons, name);
 
     // retrieve orig records
     bool ok;
@@ -203,9 +221,9 @@ void TestAlterTable::testAddLookupToField()
     << new AlterTableHandler::ChangeFieldPropertyAction(
         "owner", "rowSource", "persons")
     << new AlterTableHandler::ChangeFieldPropertyAction(
-        "owner", "boundColumn", t_persons->indexOf(f_id))
+        "owner", "boundColumn", t_persons->indexOf(f_persons_id))
     << new AlterTableHandler::ChangeFieldPropertyAction(
-    "owner", "visibleColumn", t_persons->indexOf(f_name));
+    "owner", "visibleColumn", t_persons->indexOf(f_persons_name));
 
     AlterTableHandler::ExecutionArguments args;
     AlterTableHandler handler(*m_conn);
