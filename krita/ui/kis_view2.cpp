@@ -123,12 +123,11 @@
 
 #include <QDebug>
 #include <QPoint>
-#include "kis_paintop_box.h"
 #include "kis_node_commands_adapter.h"
 #include <kis_paintop_preset.h>
 #include "ko_favorite_resource_manager.h"
 #include "kis_action_manager.h"
-#include "kis_paintop_box.h"
+#include "input/kis_input_profile_manager.h"
 
 
 class BlockingUserInputEventFilter : public QObject
@@ -242,7 +241,6 @@ KisView2::KisView2(KoPart *part, KisDoc2 * doc, QWidget * parent)
     canvasController->setDrawShadow(false);
     canvasController->setCanvasMode(KoCanvasController::Infinite);
     KisConfig cfg;
-    canvasController->setZoomWithWheel(cfg.zoomWithWheel());
     canvasController->setVastScrolling(cfg.vastScrolling());
 
     m_d->canvasController = canvasController;
@@ -288,7 +286,7 @@ KisView2::KisView2(KoPart *part, KisDoc2 * doc, QWidget * parent)
 
     connect(shell(), SIGNAL(documentSaved()), this, SLOT(slotDocumentSaved()));
 
-    if (koDocument()->localFilePath().isNull()) {
+    if (m_d->doc->localFilePath().isNull()) {
         m_d->saveIncremental->setEnabled(false);
         m_d->saveIncrementalBackup->setEnabled(false);
     }
@@ -347,15 +345,14 @@ KisView2::KisView2(KoPart *part, KisDoc2 * doc, QWidget * parent)
         action->setShortcut(QKeySequence(), KAction::ActiveShortcut);
     }
 
-    //Workaround, by default has the same shortcut as hide/show dockers
-    action = dynamic_cast<KAction*>(shell()->actionCollection()->action("view_toggledockers"));
-    if (action) {
-        action->setShortcut(QKeySequence(), KAction::DefaultShortcut);
-        action->setShortcut(QKeySequence(), KAction::ActiveShortcut);
-    }
+    if (shell()) {
+        //Workaround, by default has the same shortcut as hide/show dockers
+        action = dynamic_cast<KAction*>(shell()->actionCollection()->action("view_toggledockers"));
+        if (action) {
+            action->setShortcut(QKeySequence(), KAction::DefaultShortcut);
+            action->setShortcut(QKeySequence(), KAction::ActiveShortcut);
+        }
 
-    if (shell())
-    {
         KoToolBoxFactory toolBoxFactory(m_d->canvasController);
         shell()->createDockWidget(&toolBoxFactory);
 
@@ -406,6 +403,8 @@ KisView2::KisView2(KoPart *part, KisDoc2 * doc, QWidget * parent)
         collection->setConfigGroup("krita/shortcuts");
         collection->readSettings(&group);
     }
+
+    KisInputProfileManager::instance()->loadProfiles();
 
 
 #if 0
@@ -869,7 +868,6 @@ void KisView2::slotPreferences()
         KisConfigNotifier::instance()->notifyConfigChanged();
         m_d->resourceProvider->resetDisplayProfile(QApplication::desktop()->screenNumber(this));
         KisConfig cfg;
-        static_cast<KoCanvasControllerWidget*>(m_d->canvasController)->setZoomWithWheel(cfg.zoomWithWheel());
 
         // Update the settings for all nodes -- they don't query
         // KisConfig directly because they need the settings during
@@ -964,7 +962,7 @@ void KisView2::loadPlugins()
     // Load all plugins
     KService::List offers = KServiceTypeTrader::self()->query(QString::fromLatin1("Krita/ViewPlugin"),
                                                               QString::fromLatin1("(Type == 'Service') and "
-                                                                                  "([X-Krita-Version] == 27)"));
+                                                                                  "([X-Krita-Version] == 28)"));
     KService::List::ConstIterator iter;
     for (iter = offers.constBegin(); iter != offers.constEnd(); ++iter) {
         KService::Ptr service = *iter;
@@ -1036,8 +1034,7 @@ void KisView2::slotDocumentSaved()
 
 void KisView2::slotSaveIncremental()
 {
-    KoDocument* pDoc = koDocument();
-    if (!pDoc) return;
+    if (!m_d->doc) return;
 
     bool foundVersion;
     bool fileAlreadyExists;
@@ -1045,7 +1042,7 @@ void KisView2::slotSaveIncremental()
     QString version = "000";
     QString newVersion;
     QString letter;
-    QString fileName = pDoc->localFilePath();
+    QString fileName = m_d->doc->localFilePath();
 
     // Find current version filenames
     // v v Regexp to find incremental versions in the filename, taking our backup scheme into account as well
@@ -1111,7 +1108,7 @@ void KisView2::slotSaveIncremental()
                 ++letterCh;
                 letter = QString(QChar(letterCh));
             } else {
-                letter = "a";
+                letter = 'a';
             }
         }
     } while (fileAlreadyExists && letter != "{");  // x, y, z, {...
@@ -1120,24 +1117,23 @@ void KisView2::slotSaveIncremental()
         KMessageBox::error(this, "Alternative names exhausted, try manually saving with a higher number", "Couldn't save incremental version");
         return;
     }
-    pDoc->setSaveInBatchMode(true);
+    m_d->doc->setSaveInBatchMode(true);
     m_d->doc->documentPart()->saveAs(fileName);
-    pDoc->setSaveInBatchMode(false);
+    m_d->doc->setSaveInBatchMode(false);
 
     shell()->updateCaption();
 }
 
 void KisView2::slotSaveIncrementalBackup()
 {
-    KoDocument* pDoc = koDocument();
-    if (!pDoc) return;
+    if (!m_d->doc) return;
 
     bool workingOnBackup;
     bool fileAlreadyExists;
     QString version = "000";
     QString newVersion;
     QString letter;
-    QString fileName = pDoc->localFilePath();
+    QString fileName = m_d->doc->localFilePath();
 
     // First, discover if working on a backup file, or a normal file
     QRegExp regex("~\\d{1,4}[.]|~\\d{1,4}[a-z][.]");
@@ -1179,7 +1175,7 @@ void KisView2::slotSaveIncrementalBackup()
                     ++letterCh;
                     letter = QString(QChar(letterCh));
                 } else {
-                    letter = "a";
+                    letter = 'a';
                 }
             }
         } while (fileAlreadyExists && letter != "{");  // x, y, z, {...
@@ -1196,7 +1192,7 @@ void KisView2::slotSaveIncrementalBackup()
         // Navigate directory searching for latest backup version, ignore letters
         const quint8 HARDCODED_DIGIT_COUNT = 3;
         QString baseNewVersion = "000";
-        QString backupFileName = pDoc->localFilePath();
+        QString backupFileName = m_d->doc->localFilePath();
         QRegExp regex2("[.][a-z]{2,4}$");  //  Heuristic to find file extension
         regex2.indexIn(backupFileName);
         QStringList matches2 = regex2.capturedTexts();
@@ -1224,10 +1220,9 @@ void KisView2::slotSaveIncrementalBackup()
         } while (fileAlreadyExists);
 
         // Save both as backup and on current file for interapplication workflow
-        pDoc->setSaveInBatchMode(true);
+        m_d->doc->setSaveInBatchMode(true);
         m_d->doc->documentPart()->saveAs(backupFileName);
-        m_d->doc->documentPart()->saveAs(fileName);
-        pDoc->setSaveInBatchMode(false);
+        m_d->doc->setSaveInBatchMode(false);
 
         shell()->updateCaption();
     }
