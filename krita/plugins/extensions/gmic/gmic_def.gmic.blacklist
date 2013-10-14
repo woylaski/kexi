@@ -1,48 +1,44 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <blacklist>
-
     <category name="About">
         <filter name="Gmicky / Roddy" />
     </category>
 
-    <category name="Arrays &amp; tiles">
-        <filter name="Tileable rotation" />
-    </category>
-
-    <category name="Artistic">
-        <filter name="Warhol" />
-    </category>
-
-    <category name="Black &amp; white">
-        <filter name="Hard sketch" />
-        <filter name="Hough sketch" />
-        <filter name="Sketch" />
-    </category>
-
-   <category name="Colors">
-       <filter name="Decompose channels" />
-       <filter name="Equalize HSV" />
+    <category name="Colors">
        <filter name="User-defined" />
-   </category>
-
-    <category name="Contours">
-        <filter name="Difference of gaussians" />
-        <filter name="Edges" />
-        <filter name="Gradient norm" />
-        <filter name="Gradient RGB" />
-        <filter name="Thin edges" />
-
     </category>
 
     <category name="Deformations">
-        <!--
-        <filter name="" />
-        -->
         <filter name="Cartesian transform" />
-        <filter name="Kaleidoscope [blended]" />
         <filter name="Polar transform" />
-        <filter name="Ripple" />
     </category>
 
+    <category name="Degradations">
+        <filter name="Visible watermark" />
+    </category>
 
+    <category name="Layers">
+        <filter name="Blend [fade]" />
+    </category>
+
+    <category name="Rendering">
+        <filter name="Quick copyright" />
+    </category>
+
+    <category name="Sequences">
+        <filter name="B&amp;W pencil" />
+        <filter name="B&amp;W stencil" />
+        <filter name="Soft glow" />
+    </category>
+
+    <category name="Spectral filters">
+        <filter name="Fourier watermark" />
+    </category>
+
+    <category name="Various">
+        <filter name="Custom code (local)" />
+        <filter name="Custom code (global)" />
+        <filter name="GREYC Poker Tour" />
+        <filter name="Import data" />
+    </category>
 </blacklist>
