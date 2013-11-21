@@ -1,4 +1,12 @@
-add_definitions(${KDE4_ENABLE_EXCEPTIONS})
+# Disable -Wswitch because of the extra definitions we here:
+# kis_input_manager.cpp: In member function ‘virtual bool KisInputManager::eventFilter(QObject*, QEvent*)’:
+# warning: case value ‘1001’ not in enumerated type ‘QEvent::Type’ [-Wswitch]
+# warning: case value ‘1002’ not in enumerated type ‘QEvent::Type’ [-Wswitch]
+if (CMAKE_COMPILER_IS_GNUCXX)
+    add_definitions(${KDE4_ENABLE_EXCEPTIONS} -Wno-switch)
+else (CMAKE_COMPILER_IS_GNUCXX)
+    add_definitions(${KDE4_ENABLE_EXCEPTIONS} )
+endif (CMAKE_COMPILER_IS_GNUCXX)
 
 include_directories( ${KOTEXT_INCLUDES}
     ${TEXTLAYOUT_INCLUDES}
@@ -115,7 +123,6 @@ set(kritaui_LIB_SRCS
     kis_zoom_manager.cc
     ko_favorite_resource_manager.cpp
     kis_workspace_resource.cpp
-    kis_mirror_visitor.cpp
     kis_action.cpp
     kis_action_manager.cpp
     kis_view_plugin.cpp
@@ -249,6 +256,23 @@ set(kritaui_LIB_SRCS
     processing/fill_processing_visitor.cpp
 )
 
+if(WIN32)
+    set(kritaui_LIB_SRCS
+        ${kritaui_LIB_SRCS}
+        input/kis_tablet_event.cpp
+        input/wintab/kis_tablet_support_win.cpp
+        )
+endif(WIN32)
+
+if(UNIX AND NOT APPLE)
+    set(kritaui_LIB_SRCS
+        ${kritaui_LIB_SRCS}
+        input/kis_tablet_event.cpp
+        input/wintab/kis_tablet_support.cpp
+        input/wintab/kis_tablet_support_x11.cpp
+        )
+endif(UNIX AND NOT APPLE)
+
 add_definitions(${KDE4_ENABLE_EXCEPTIONS})
 
 kde4_add_ui_files(kritaui_LIB_SRCS
@@ -300,7 +324,8 @@ kde4_add_ui_files(kritaui_LIB_SRCS
 kde4_add_library(kritaui SHARED ${kritaui_LIB_SRCS} )
 
 target_link_libraries(kritaui ${QT_QTDECLARATIVE_LIBRARY}
-                              ${X11_X11_LIB})
+                              ${X11_X11_LIB}
+                              ${X11_Xinput_LIB})
 
 target_link_libraries(kritaui ${GLEW_LIBRARIES})
 

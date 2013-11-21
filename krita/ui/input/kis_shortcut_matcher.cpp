@@ -25,6 +25,16 @@
 #include "kis_stroke_shortcut.h"
 #include "kis_touch_shortcut.h"
 
+#ifdef DEBUG_MATCHER
+#include <QDebug>
+#define DEBUG_ACTION(action) qDebug() << __FUNCTION__ << ":" << action;
+#define DEBUG_BUTTON_ACTION(action, button) qDebug() << __FUNCTION__ << ":" << action << "button:" << button << "btns:" << m_d->buttons << "keys:" << m_d->keys;
+#else
+#define DEBUG_ACTION(action)
+#define DEBUG_BUTTON_ACTION(action, button)
+#endif
+
+
 class KisShortcutMatcher::Private
 {
 public:
@@ -137,6 +147,8 @@ bool KisShortcutMatcher::keyReleased(Qt::Key key)
 
 bool KisShortcutMatcher::buttonPressed(Qt::MouseButton button, QMouseEvent *event)
 {
+    DEBUG_BUTTON_ACTION("entered", button);
+
     bool retval = false;
 
     if (m_d->usingTouch) {
@@ -162,6 +174,8 @@ bool KisShortcutMatcher::buttonPressed(Qt::MouseButton button, QMouseEvent *even
 
 bool KisShortcutMatcher::buttonReleased(Qt::MouseButton button, QMouseEvent *event)
 {
+    DEBUG_BUTTON_ACTION("entered", button);
+
     bool retval = false;
 
     if (m_d->usingTouch) {
@@ -170,6 +184,7 @@ bool KisShortcutMatcher::buttonReleased(Qt::MouseButton button, QMouseEvent *eve
 
     if (m_d->runningShortcut) {
         retval = tryEndRunningShortcut(button, event);
+        DEBUG_BUTTON_ACTION("ended", button);
     }
 
     if (!m_d->buttons.contains(button)) reset();
@@ -267,6 +282,7 @@ void KisShortcutMatcher::reset()
 {
     m_d->keys.clear();
     m_d->buttons.clear();
+    DEBUG_ACTION("reset!");
 }
 
 void KisShortcutMatcher::suppressAllActions(bool value)

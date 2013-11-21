@@ -50,9 +50,9 @@
 QByteArray generateMD5(const QImage &pattern)
 {
 #if QT_VERSION >= 0x040700
-    QByteArray ba = QByteArray::fromRawData((const char*)pattern.constBits(), pattern.width() * pattern.height() * 4);
+    QByteArray ba = QByteArray::fromRawData((const char*)pattern.constBits(), pattern.byteCount());
 #else
-    QByteArray ba = QByteArray::fromRawData((const char*)pattern.bits(), pattern.width() * pattern.height() * 4);
+    QByteArray ba = QByteArray::fromRawData((const char*)pattern.bits(), pattern.byteCount());
 #endif
     QCryptographicHash md5(QCryptographicHash::Md5);
     md5.addData(ba);
@@ -65,7 +65,7 @@ KisPattern::KisPattern(const QString& file)
 }
 
 KisPattern::KisPattern(const QImage &image, const QString &name, const QString &folderName)
-        : KoPattern(0)
+    : KoPattern(0)
 {
     setImage(image);
     setName(name);
@@ -104,7 +104,7 @@ KisPattern* KisPattern::clone() const
 
 QByteArray KisPattern::md5() const
 {
-    if (m_md5.isEmpty()) {
+    if (m_md5.isEmpty() && !image().isNull()) {
         m_md5 = generateMD5(image());
     }
     return m_md5;

@@ -29,6 +29,8 @@
 #include <kis_view2.h>
 #include "kis_input_manager.h"
 
+#include <klocale.h>
+
 class KisZoomAction::Private
 {
 public:
@@ -196,6 +198,7 @@ void KisZoomAction::inputEvent( QEvent* event )
             
             if(qAbs(delta) > 0.1f) {
                 qreal zoom = inputManager()->canvas()->view()->zoomController()->zoomAction()->effectiveZoom();
+                Q_UNUSED(zoom);
                 static_cast<KisCanvasController*>(inputManager()->canvas()->canvasController())->zoomRelativeToPoint(center.toPoint(), delta);
                 d->lastDistance = dist;
                 // Also do panning here, as doing it later requires a further check for validity

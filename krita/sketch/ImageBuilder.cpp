@@ -22,7 +22,7 @@
 #include <QApplication>
 #include <QDesktopWidget>
 
-#include <KoColorSpaceRegistry.h>
+#include <KoCompositeOpRegistry.h>
 
 #include <kis_part2.h>
 #include <kis_doc2.h>
@@ -33,8 +33,8 @@
 #include <kis_painter.h>
 
 ImageBuilder::ImageBuilder(QObject* parent)
+: QObject(parent)
 {
-
 }
 
 ImageBuilder::~ImageBuilder()
@@ -90,5 +90,6 @@ void ImageBuilder::createImageFromClipboardDelayed()
 
 QString ImageBuilder::createImageFromWebcam(int width, int height, int resolution)
 {
+    Q_UNUSED(width); Q_UNUSED(height); Q_UNUSED(resolution);
     return QString();
 }

@@ -107,7 +107,9 @@ int main( int argc, char** argv )
     app.addLibraryPath(appdir.absolutePath() + "/lib/kde4");
 #endif
 
+#if defined Q_WS_X11 && QT_VERSION >= 0x040800
     QApplication::setAttribute(Qt::AA_X11InitThreads);
+#endif
 
     QStringList fonts = KGlobal::dirs()->findAllResources( "appdata", "fonts/*.otf" );
     foreach( const QString &font, fonts ) {

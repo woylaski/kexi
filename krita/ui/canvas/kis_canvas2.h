@@ -25,7 +25,7 @@
 #include <QSize>
 #include <QString>
 
-#include <KoColorSpace.h>
+#include <KoColorConversionTransformation.h>
 #include <KoCanvasBase.h>
 #include <krita_export.h>
 #include <kis_types.h>
@@ -178,7 +178,6 @@ public slots:
 
     /// canvas rotation in degrees
     qreal rotationAngle() const;
-    void setSmoothingEnabled(bool smooth);
 
     void channelSelectionChanged();
 
@@ -217,6 +216,8 @@ private slots:
 
     void slotSelectionChanged();
 
+    void slotDoCanvasUpdate();
+
 public:
 
     // interafce for KisCanvasController only
@@ -238,6 +239,7 @@ private:
     void createCanvas(bool useOpenGL);
     void createQPainterCanvas();
     void createOpenGLCanvas();
+    void updateCanvasWidgetImpl(const QRect &rc = QRect());
 
 private:
 

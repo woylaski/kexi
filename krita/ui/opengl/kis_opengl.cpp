@@ -87,6 +87,7 @@ void KisOpenGL::createContext()
 
     QGLFormat format(QGL::SampleBuffers);
 
+/* Profiles are broken in Qt 4.x: http://qt-project.org/forums/viewthread/4856
 #if QT_VERSION >= 0x040700
     format.setVersion(3, 0);
     format.setProfile(QGLFormat::CoreProfile);
@@ -97,7 +98,7 @@ void KisOpenGL::createContext()
     if (format.profile() == 2)
         qDebug() << "Using the compatibility profile";
 #endif
-
+*/
     format.setDoubleBuffer(false);
 
     SharedContextWidget = new QGLWidget(format);
@@ -151,6 +152,11 @@ void KisOpenGL::clearError()
 {
     while (glGetError() != GL_NO_ERROR) {
     }
+}
+
+bool KisOpenGL::supportsGLSL13()
+{
+    return QGLFormat::openGLVersionFlags() & QGLFormat::OpenGL_Version_3_0;
 }
 
 #endif // HAVE_OPENGL

@@ -252,7 +252,6 @@ public:
     bool m_bAutoDetectedMime : 1; // whether the mimetype in the arguments was detected by the part itself
     KUrl m_url; // Remote (or local) url - the one displayed to the user.
     QString m_file; // Local file - the only one the part implementation should deal with.
-    QString m_mimeType;
     QEventLoop m_eventLoop;
 
     bool modified;
@@ -284,12 +283,12 @@ public:
     {
         m_bTemp = false;
         // set the mimetype only if it was not already set (for example, by the host application)
-        if (m_mimeType.isEmpty()) {
+        if (mimeType.isEmpty()) {
             // get the mimetype of the file
             // using findByUrl() to avoid another string -> url conversion
             KMimeType::Ptr mime = KMimeType::findByUrl(m_url, 0, true /* local file*/);
             if (mime) {
-                m_mimeType = mime->name();
+                mimeType = mime->name().toLocal8Bit();
                 m_bAutoDetectedMime = true;
             }
         }
@@ -386,7 +385,11 @@ public:
         // this could maybe confuse some apps? So for now we'll just fallback to KIO::get
         // and error again. Well, maybe this even helps with wrong stat results.
         if (!job->error()) {
+#if KDE_IS_VERSION(4,4,0)
             const KUrl localUrl = static_cast<KIO::StatJob*>(job)->mostLocalUrl();
+#else
+            const KUrl localUrl = static_cast<KIO::StatJob*>(job)->url();
+#endif
             if (localUrl.isLocalFile()) {
                 m_file = localUrl.toLocalFile();
                 openLocalFile();
@@ -402,8 +405,8 @@ public:
         kDebug(1000) << mime;
         Q_ASSERT(job == m_job); Q_UNUSED(job);
         // set the mimetype only if it was not already set (for example, by the host application)
-        if (m_mimeType.isEmpty()) {
-            m_mimeType = mime;
+        if (mimeType.isEmpty()) {
+            mimeType = mime.toLocal8Bit();
             m_bAutoDetectedMime = true;
         }
     }
@@ -1049,6 +1052,7 @@ bool KoDocument::saveToStore(KoStore *_store, const QString & _path)
 {
     kDebug(30003) << "Saving document to store" << _path;
 
+    _store->pushDirectory();
     // Use the path as the internal url
     if (_path.startsWith(STORE_PROTOCOL))
         setUrl(KUrl(_path));
@@ -1643,6 +1647,13 @@ void KoDocument::setProgressProxy(KoProgressProxy *progressProxy)
 
 KoProgressProxy* KoDocument::progressProxy() const
 {
+    if (!d->progressProxy) {
+        KoMainWindow *mainWindow = 0;
+        if (d->parentPart->mainwindowCount() > 0) {
+            mainWindow = d->parentPart->mainWindows()[0];
+        }
+        d->progressProxy = new DocumentProgressProxy(mainWindow);
+    }
     return d->progressProxy;
 }
 
@@ -2438,7 +2449,7 @@ bool KoDocument::closeUrl(bool promptToSave)
         }
     }
     // Not modified => ok and delete temp file.
-    d->m_mimeType = QString();
+    d->mimeType = QByteArray();
 
     if ( d->m_bTemp )
     {
@@ -2654,16 +2665,16 @@ bool KoDocument::openUrlInternal(const KUrl &url)
         return false;
 
     if (d->m_bAutoDetectedMime) {
-        d->m_mimeType = QString();
+        d->mimeType = QByteArray();
         d->m_bAutoDetectedMime = false;
     }
 
-    QString mimetype = d->m_mimeType;
+    QByteArray mimetype = d->mimeType;
 
     if ( !closeUrl() )
         return false;
 
-    d->m_mimeType = mimetype;
+    d->mimeType = mimetype;
     setUrl(url);
 
     d->m_file.clear();

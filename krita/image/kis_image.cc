@@ -37,6 +37,7 @@
 #include "KoColor.h"
 #include "KoColorConversionTransformation.h"
 #include "KoColorProfile.h"
+#include <KoCompositeOpRegistry.h>
 
 #include "recorder/kis_action_recorder.h"
 #include "kis_adjustment_layer.h"
@@ -312,7 +313,8 @@ void KisImage::init(KisUndoStore *undoStore, qint32 width, qint32 height, const 
 
     m_d->lockCount = 0;
     m_d->perspectiveGrid = 0;
-	m_d->scheduler = 0;
+    m_d->scheduler = 0;
+    m_d->wrapAroundModePermitted = false;
 
     m_d->signalRouter = new KisImageSignalRouter(this);
 
@@ -1292,28 +1294,6 @@ void KisImage::removeAnnotation(const QString& type)
 
 vKisAnnotationSP_it KisImage::beginAnnotations()
 {
-    const KoColorProfile * profile = colorSpace()->profile();
-    KisAnnotationSP annotation;
-
-    if (profile) {
-#ifdef __GNUC__
-#warning "KisImage::beginAnnotations: make it possible to save any profile, not just icc profiles."
-#endif
-#if 0
-        // XXX we hardcode icc, this is correct for icc?
-        // XXX productName(), or just "ICC Profile"?
-        if (profile->valid() && profile->type() == "icc" && !profile->rawData().isEmpty()) {
-                annotation = new  KisAnnotation("icc", profile->name(), profile->rawData());
-            }
-        }
-#endif
-    }
-
-    if (annotation)
-        addAnnotation(annotation);
-    else
-        removeAnnotation("icc");
-
     return m_d->annotations.begin();
 }
 
