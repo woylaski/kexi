@@ -18,6 +18,8 @@
 
 #include "kis_show_palette_action.h"
 
+#include <QCursor>
+
 #include <klocalizedstring.h>
 
 #include <ko_favorite_resource_manager.h>
@@ -26,6 +28,7 @@
 #include "kis_input_manager.h"
 
 KisShowPaletteAction::KisShowPaletteAction()
+    : KisAbstractInputAction("Show Popup Palette")
 {
     setName(i18n("Show Popup Palette"));
     setDescription(i18n("The <i>Show Popup Palette</i> displays the popup palette."));
@@ -49,7 +52,7 @@ void KisShowPaletteAction::begin(int, QEvent *event)
     if (mouseEvent) {
         pos = mouseEvent->pos();
     } else {
-        pos = inputManager()->canvas()->coordinatesConverter()->widgetCenterPoint().toPoint();
+        pos = inputManager()->canvas()->canvasWidget()->mapFromGlobal(QCursor::pos());
     }
 
     inputManager()->canvas()->favoriteResourceManager()->slotShowPopupPalette(pos);

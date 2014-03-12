@@ -54,6 +54,8 @@ public:
 
     const KoColorSpace* compositionSourceColorSpace() const;
 
+    bool read(QIODevice *stream);
+
     /**
      * Fill the specified rect with the specified selectedness.
      */
@@ -102,6 +104,12 @@ public:
      * @return a vector of polygons that can be used to draw the outline
      */
     QVector<QPolygon> outline() const;
+
+    /**
+     * Overridden from KisPaintDevice to handle outline cache moves
+     */
+    void move(const QPoint& pt);
+    using KisPaintDevice::move;
 
     bool isEmpty() const;
     QPainterPath outlineCache() const;

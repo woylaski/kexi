@@ -227,6 +227,7 @@ void KisToolColorPicker::pickColor(const QPointF& pos)
             delete[] data;
         }
 
+        m_pickedColor.setOpacity(OPACITY_OPAQUE_U8);
         if (m_config.updateColor) {
             if (m_config.toForegroundColor)
                 canvas()->resourceManager()->setResource(KoCanvasResourceManager::ForegroundColor, m_pickedColor);
@@ -269,7 +270,7 @@ void KisToolColorPicker::beginPrimaryAction(KoPointerEvent *event)
 
 void KisToolColorPicker::continuePrimaryAction(KoPointerEvent *event)
 {
-    KIS_ASSERT_RECOVER_RETURN(mode() == KisTool::PAINT_MODE);
+    CHECK_MODE_SANITY_OR_RETURN(KisTool::PAINT_MODE);
 
     QPoint pos = convertToIntPixelCoord(event);
     pickColor(pos);
@@ -279,7 +280,7 @@ void KisToolColorPicker::continuePrimaryAction(KoPointerEvent *event)
 void KisToolColorPicker::endPrimaryAction(KoPointerEvent *event)
 {
     Q_UNUSED(event);
-    KIS_ASSERT_RECOVER_RETURN(mode() == KisTool::PAINT_MODE);
+    CHECK_MODE_SANITY_OR_RETURN(KisTool::PAINT_MODE);
 
     if (m_config.addPalette) {
         KoColorSetEntry ent;
@@ -324,6 +325,12 @@ QWidget* KisToolColorPicker::createOptionWidget()
     m_optionsWidget = new ColorPickerOptionsWidget(0);
     m_optionsWidget->setObjectName(toolId() + " option widget");
     m_optionsWidget->listViewChannels->setSortingEnabled(false);
+
+    // See https://bugs.kde.org/show_bug.cgi?id=316896
+    QWidget *specialSpacer = new QWidget(m_optionsWidget);
+    specialSpacer->setObjectName("SpecialSpacer");
+    specialSpacer->setFixedSize(0, 0);
+    m_optionsWidget->layout()->addWidget(specialSpacer);
 
     updateOptionWidget();
 

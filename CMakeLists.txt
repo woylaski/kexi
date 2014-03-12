@@ -45,6 +45,17 @@ set(GENERIC_CALLIGRA_LIB_SOVERSION "${GENERIC_CALLIGRA_LIB_VERSION_MAJOR}")
 
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/modules )
 
+# fetch git revision for the current build
+
+set(CALLIGRA_GIT_SHA1_STRING "")
+
+include(GetGitRevisionDescription)
+get_git_head_revision(GIT_REFSPEC GIT_SHA1)
+
+if(GIT_SHA1)
+    string(SUBSTRING ${GIT_SHA1} 0 7 GIT_SHA1)
+    set(CALLIGRA_GIT_SHA1_STRING ${GIT_SHA1})
+endif(GIT_SHA1)
 
  ########################
 #########################
@@ -90,8 +101,8 @@ endif (RELEASE_BUILD)
 #############
 ############
 
+option(USEOPENGL "Allow the use of OpenGL for Krita" ON)
 option(GHNS "support Get Hot New Stuff" OFF)
-option(NEPOMUK "support NEPOMUK Tagging" ON)
 # TODO: orthogonal setting, results in minimal features, yet needs to be defined
 # option(TINY "compile a tiny Calligra" OFF)
 option(QT3SUPPORT "Build the parts of Calligra that still depend on Qt3" ON)
@@ -229,7 +240,7 @@ calligra_define_product(FILTER_RTF_TO_ODT "RTF to ODT filter"  NEEDS CALLIGRA_LI
 calligra_define_product(FILTER_ODT_TO_MOBI "Mobi export filter"  NEEDS CALLIGRA_LIBS)
 calligra_define_product(FILTER_ODT_TO_EPUB2 "ODT Epub2 export filter"  NEEDS LIB_KOVECTORIMAGE CALLIGRA_LIBS)
 calligra_define_product(FILTER_ODT_TO_HTML "ODT HTML export filter"  NEEDS LIB_KOVECTORIMAGE CALLIGRA_LIBS)
-calligra_define_product(FILTER_WORDS_IMPORT "All Words import filter"  WANTS FILTER_DOC_TO_ODT FILTER_DOCX_TO_ODT FILTER_WORDPERFECT_TO_ODT FILTER_WORKS_TO_ODT FILTER_ASCII_TO_WORDS FILTER_RTF_TO_ODT)
+calligra_define_product(FILTER_WORDS_IMPORT "All Words import filter"  WANTS FILTER_DOC_TO_ODT FILTER_DOCX_TO_ODT FILTER_WORDPERFECT_TO_ODT FILTER_WORKS_TO_ODT FILTER_APPLIXWORD_TO_ODT FILTER_ASCII_TO_WORDS FILTER_RTF_TO_ODT)
 calligra_define_product(FILTER_WORDS_EXPORT "All Words export filter"  WANTS FILTER_ODT_TO_ASCII FILTER_ODT_TO_MOBI FILTER_ODT_TO_EPUB2 FILTER_ODT_TO_HTML)
 calligra_define_product(FILTER_WORDS "All Words filter"  WANTS FILTER_WORDS_IMPORT FILTER_WORDS_EXPORT)
 # Plan filters
@@ -283,10 +294,15 @@ set(KDE_MIN_VERSION "4.3.0")
 find_package(KDE4 4.3.0 REQUIRED)
 
 if (QT3SUPPORT)
-    find_package(Qt4 4.6.0 REQUIRED QtCore QtGui QtXml QtScript QtSvg QtTest QtWebKit QtDBus QtOpenGL Qt3Support)
+    find_package(Qt4 4.6.0 REQUIRED QtCore QtGui QtXml QtScript QtSvg QtTest QtWebKit QtDBus Qt3Support)
 else (QT3SUPPORT)
-    find_package(Qt4 4.6.0 REQUIRED QtCore QtGui QtXml QtScript QtSvg QtTest QtWebKit QtDBus QtOpenGL)
+    find_package(Qt4 4.6.0 REQUIRED QtCore QtGui QtXml QtScript QtSvg QtTest QtWebKit QtDBus)
 endif (QT3SUPPORT)
+
+if (USEOPENGL)
+    find_package(Qt4 4.6.0 REQUIRED QtOpenGL)
+endif (USEOPENGL)
+
 
 include (KDE4Defaults)
 include (MacroLibrary)
@@ -317,10 +333,6 @@ if (GHNS)
         MESSAGE(STATUS "WARNING: You are compiling with Get Hot New Stuff enabled. Do not do that when building distribution packages. GHNS is unusable these days until someone starts maintaining it again.")
     endif (NOT LIBATTICA_FOUND)
 endif (GHNS)
-
-if(NOT ${KDE_VERSION} VERSION_GREATER 4.6.4)
-  set(NEPOMUK FALSE)
-endif(NOT ${KDE_VERSION} VERSION_GREATER 4.6.4)
 
 macro_ensure_out_of_source_build("Compiling Calligra inside the source directory is not possible. Please refer to the build instruction http://community.kde.org/Calligra/Building/Building_Calligra")
 
@@ -384,9 +396,9 @@ endif (APPLE)
 ## Test for sqlite
 ##
 set(SQLITE_MIN_VERSION 3.6.16)
-set(SQLITE_RECOMMENDED_VERSION 3.8.1)
+set(SQLITE_RECOMMENDED_VERSION 3.8.2)
 set(SQLITE_LOAD_EXTENSION_REQUIRED ON)
-macro_optional_find_package(CalligraSqlite 3.6.16)
+macro_optional_find_package(CalligraSqlite ${SQLITE_MIN_VERSION})
 macro_bool_to_01(SQLITE_FOUND HAVE_SQLITE)
 macro_log_feature(SQLITE_FOUND "SQLite" "Embedded SQL database engine with enabled extensions loading"
                   "http://www.sqlite.org" FALSE "${SQLITE_MIN_VERSION}"
@@ -402,7 +414,7 @@ macro_log_feature(ICU_FOUND "ICU" "International Components for Unicode (ICU) Li
                   "Required by Calligra's default database handler for Kexi and Words.")
 
 ##
-## Check for OpenEXR 
+## Check for OpenEXR
 ##
 
 macro_optional_find_package(OpenEXR)
@@ -412,21 +424,23 @@ macro_bool_to_01(OPENEXR_FOUND HAVE_OPENEXR)
 ## Look for OpenGL
 ##
 set(HAVE_OPENGL 0)
-macro_optional_find_package(OpenGL)
+if (USEOPENGL)
+    macro_optional_find_package(OpenGL)
 
-if(OPENGL_FOUND)
-    message(STATUS "Found OpenGL: ${OPENGL_LIBRARIES}")
-    if(QT_QTOPENGL_FOUND)
-        message(STATUS "Found Qt OpenGL support")
-        set(HAVE_OPENGL 1)
-    else(QT_QTOPENGL_FOUND)
-        message(STATUS "Did NOT find Qt OpenGL support. Check your Qt configuration")
-    endif(QT_QTOPENGL_FOUND)
-else(OPENGL_FOUND)
-    message(STATUS "Did NOT find OpenGL libraries")
-endif(OPENGL_FOUND)
+    if(OPENGL_FOUND)
+        message(STATUS "Found OpenGL: ${OPENGL_LIBRARIES}")
+        if(QT_QTOPENGL_FOUND)
+            message(STATUS "Found Qt OpenGL support")
+            set(HAVE_OPENGL 1)
+        else(QT_QTOPENGL_FOUND)
+            message(STATUS "Did NOT find Qt OpenGL support. Check your Qt configuration")
+        endif(QT_QTOPENGL_FOUND)
+    else(OPENGL_FOUND)
+        message(STATUS "Did NOT find OpenGL libraries")
+    endif(OPENGL_FOUND)
+    macro_log_feature(HAVE_OPENGL "OpenGL" "OpenGL support" "" FALSE "" "Required by parts of Krita and optionally by flake")
+endif(USEOPENGL)
 
-macro_log_feature(HAVE_OPENGL "OpenGL" "OpenGL support" "" FALSE "" "Required by parts of Krita and optionally by flake")
 
 ##
 ## Test for kdepimlibs
@@ -583,18 +597,6 @@ if(NOT WIN32)
 else(NOT WIN32)
   set(REQUIRED_Xinput_FOUND TRUE)
 endif(NOT WIN32)
-
-##
-## Test for Nepomuk
-##
-if(NEPOMUK)
-    macro_optional_find_package(Nepomuk)
-    if(NOT NEPOMUK_FOUND)
-        set(NEPOMUK FALSE)
-    endif(NOT NEPOMUK_FOUND)
-    add_definitions(-DDISABLE_NEPOMUK_LEGACY)
-    macro_log_feature(NEPOMUK_FOUND "Nepomuk" "Handles metadata of resources" FALSE  "Required to handle metadata of resources")
-endif(NEPOMUK)
 
 ##
 ## Test for KActivities
@@ -820,12 +822,12 @@ set(FLAKE_INCLUDES ${CMAKE_SOURCE_DIR}/libs/flake
                    ${CMAKE_BINARY_DIR}/libs/flake)
 
 # vectorimage
-set(VECTORIMAGE_INCLUDES 
+set(VECTORIMAGE_INCLUDES
                    ${CMAKE_SOURCE_DIR}/libs/vectorimage
                    ${CMAKE_SOURCE_DIR}/libs/vectorimage/libemf
                    ${CMAKE_SOURCE_DIR}/libs/vectorimage/libsvm
                    ${CMAKE_SOURCE_DIR}/libs/vectorimage/libwmf)
-                   
+
 # KoText depends on koplugin, odf
 set(KOTEXT_INCLUDES ${CMAKE_SOURCE_DIR}/libs/kotext
                    ${CMAKE_BINARY_DIR}/libs/kotext
@@ -1127,5 +1129,5 @@ install( FILES  ${CMAKE_CURRENT_BINARY_DIR}/KoConfig.h DESTINATION ${INCLUDE_INS
 ## temporary warning
 if (WARN_ABOUT_CREATIVEONLY)
     message(STATUS "WARNING:\n   You are using a deprecated build flag,\n   switch from \"-DCREATIVEONLY=ON\" to \"-DPRODUCTSET=CREATIVE\"\n   and remove the line \"CREATIVEONLY:BOOL=ON\" from CMakeCache.txt")
-    message(STATUS "--------------------------------------------------------------------------" )
+    message(STATUS "-------------------------------------------------------------------" )
 endif (WARN_ABOUT_CREATIVEONLY)

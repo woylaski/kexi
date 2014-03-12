@@ -42,7 +42,7 @@
 #include <QDomDocument>
 #include "KoResource.h"
 #include "KoResourceServerObserver.h"
-#include "KoResourceTagging.h"
+#include "KoResourceTagStore.h"
 
 #include "kowidgets_export.h"
 
@@ -115,16 +115,18 @@ public:
     {
         m_blackListFile = KStandardDirs::locateLocal("data", "krita/" + type + ".blacklist");
         m_blackListFileNames = readBlackListFile();
-        m_tagObject = new KoResourceTagging(type, extensions);
+        m_tagStore = new KoResourceTagStore(type, extensions);
     }
 
     virtual ~KoResourceServer()
     {
         if (m_deleteResource) {
-            qDeleteAll(m_resources);
+            foreach(T* res, m_resources) {
+                delete res;
+            }
         }
         m_resources.clear();
-        delete m_tagObject;
+        delete m_tagStore;
     }
 
     /**
@@ -244,7 +246,7 @@ public:
         return true;
     }
 
-    /// Remove a resource from resourceserver and hard disk
+    /// Remove a resource from the resourceserver and blacklist it
     bool removeResource(T* resource) {
         if ( !m_resourcesByFilename.contains( resource->shortFilename() ) ) {
             return false;
@@ -412,32 +414,32 @@ public:
     /// the below functions helps to access tagObject functions
     QStringList assignedTagsList( KoResource* resource ) const
     {
-        return m_tagObject->assignedTagsList(resource);
+        return m_tagStore->assignedTagsList(resource);
     }
 
     QStringList tagNamesList() const
     {
-        return m_tagObject->tagNamesList();
+        return m_tagStore->tagNamesList();
     }
 
     void addTag( KoResource* resource,const QString& tag)
     {
-        m_tagObject->addTag(resource,tag);
+        m_tagStore->addTag(resource,tag);
     }
 
     void delTag( KoResource* resource,const QString& tag)
     {
-        m_tagObject->delTag(resource,tag);
+        m_tagStore->delTag(resource,tag);
     }
 
     QStringList searchTag(const QString& lineEditText)
     {
-        return m_tagObject->searchTag(lineEditText);
+        return m_tagStore->searchTag(lineEditText);
     }
 
     void tagCategoryAdded(const QString& tag)
     {
-        m_tagObject->serializeTags();
+        m_tagStore->serializeTags();
         foreach(KoResourceServerObserver<T>* observer, m_observers) {
             observer->syncTagAddition(tag);
         }
@@ -445,7 +447,7 @@ public:
 
     void tagCategoryRemoved(const QString& tag)
     {
-        m_tagObject->serializeTags();
+        m_tagStore->serializeTags();
         foreach(KoResourceServerObserver<T>* observer, m_observers) {
             observer->syncTagRemoval(tag);
         }
@@ -453,28 +455,18 @@ public:
 
     void tagCategoryMembersChanged()
     {
-        m_tagObject->serializeTags();
+        m_tagStore->serializeTags();
         foreach(KoResourceServerObserver<T>* observer, m_observers) {
             observer->syncTaggedResourceView();
         }
     }
 
-    KoResourceTagging * tagObject() const
+    KoResourceTagStore * tagObject() const
     {
-        return m_tagObject;
+        return m_tagStore;
     }
 
 
-#ifdef NEPOMUK
-    void updateNepomukXML(bool nepomukOn)
-    {
-        KoResourceTagging* tagObject = new KoResourceTagging(type(),extensions());
-        tagObject->setNepomukBool(nepomukOn);
-        tagObject->updateNepomukXML(nepomukOn);
-        delete tagObject;
-        m_tagObject->setNepomukBool(nepomukOn);
-    }
-#endif
 protected:
 
     /**
@@ -600,7 +592,7 @@ private:
     bool m_deleteResource; // false if the resource is a shared pointer object
     QString m_blackListFile;
     QStringList m_blackListFileNames;
-    KoResourceTagging* m_tagObject;
+    KoResourceTagStore* m_tagStore;
 
 };
 

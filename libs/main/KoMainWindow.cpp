@@ -22,7 +22,7 @@
 
 #include "KoMainWindow.h"
 
-#ifdef __APPLE__
+#if defined (Q_OS_MAC) && QT_VERSION < 0x050000
 #include "MacSupport.h"
 #endif
 
@@ -92,6 +92,9 @@
 #include <QPrintPreviewDialog>
 #include <QCloseEvent>
 #include <QPointer>
+#include <QByteArray>
+#include <QMutex>
+#include <QMutexLocker>
 
 #include "thememanager.h"
 
@@ -197,7 +200,8 @@ public:
     QWidget *m_activeWidget;
 
     QLabel * statusBarLabel;
-    QProgressBar *progress;
+    QPointer<QProgressBar> progress;
+    QMutex progressMutex;
 
     QList<QAction *> toolbarList;
 
@@ -258,9 +262,13 @@ KoMainWindow::KoMainWindow(const QByteArray nativeMimeType, const KComponentData
     : KXmlGuiWindow()
     , d(new KoMainWindowPrivate(nativeMimeType, this))
 {
-#ifdef __APPLE__
-    //setUnifiedTitleAndToolBarOnMac(true);
+#ifdef Q_OS_MAC
+    #if QT_VERSION < 0x050000
     MacSupport::addFullscreen(this);
+    #endif
+    #if QT_VERSION >= 0x050201
+    setUnifiedTitleAndToolBarOnMac(true);
+    #endif
 #endif
     setStandardToolBarMenuEnabled(true);
     Q_ASSERT(componentData.isValid());
@@ -390,49 +398,47 @@ KoMainWindow::KoMainWindow(const QByteArray nativeMimeType, const KComponentData
 
     createMainwindowGUI();
     d->mainWindowGuiIsBuilt = true;
-#ifndef Q_OS_WIN
+
     // if the user didn's specify the geometry on the command line (does anyone do that still?),
     // we first figure out some good default size and restore the x,y position. See bug 285804Z.
+    KConfigGroup cfg(KGlobal::config(), "MainWindow");
     if (!initialGeometrySet()) {
+        QByteArray geom = QByteArray::fromBase64(cfg.readEntry("ko_geometry", QByteArray()));
+        if (!restoreGeometry(geom)) {
+            const int scnum = QApplication::desktop()->screenNumber(parentWidget());
+            QRect desk = QApplication::desktop()->availableGeometry(scnum);
+            // if the desktop is virtual then use virtual screen size
+            if (QApplication::desktop()->isVirtualDesktop()) {
+                desk = QApplication::desktop()->availableGeometry(QApplication::desktop()->screen());
+                desk = QApplication::desktop()->availableGeometry(QApplication::desktop()->screen(scnum));
+            }
 
-        const int scnum = QApplication::desktop()->screenNumber(parentWidget());
-        QRect desk = QApplication::desktop()->availableGeometry(scnum);
-        // if the desktop is virtual then use virtual screen size
-        if (QApplication::desktop()->isVirtualDesktop()) {
-            desk = QApplication::desktop()->availableGeometry(QApplication::desktop()->screen());
-            desk = QApplication::desktop()->availableGeometry(QApplication::desktop()->screen(scnum));
-        }
+            quint32 x = desk.x();
+            quint32 y = desk.y();
+            quint32 w = 0;
+            quint32 h = 0;
 
-        quint32 x = desk.x();
-        quint32 y = desk.y();
-        quint32 w = 0;
-        quint32 h = 0;
+            // Default size -- maximize on small screens, something useful on big screens
+            const int deskWidth = desk.width();
+            if (deskWidth > 1024) {
+                // a nice width, and slightly less than total available
+                // height to componensate for the window decs
+                w = (deskWidth / 3) * 2;
+                h = (desk.height() / 3) * 2;
+            }
+            else {
+                w = desk.width();
+                h = desk.height();
+            }
 
-        // Default size -- maximize on small screens, something useful on big screens
-        const int deskWidth = desk.width();
-        if (deskWidth > 1024) {
-            // a nice width, and slightly less than total available
-            // height to componensate for the window decs
-            w = ( deskWidth / 3 ) * 2;
-            h = desk.height();
+            x += (desk.width() - w) / 2;
+            y += (desk.height() - h) / 2;
+
+            move(x,y);
+            setGeometry(geometry().x(), geometry().y(), w, h);
         }
-        else {
-            w = desk.width();
-            h = desk.height();
-        }
-        // KDE doesn't restore the x,y position, so let's do that ourselves
-        KConfigGroup cfg(KGlobal::config(), "MainWindow");
-        x = cfg.readEntry("ko_x", x);
-        y = cfg.readEntry("ko_y", y);
-        setGeometry(x, y, w, h);
     }
-#endif
-
-    // Now ask kde to restore the size of the window; this could probably be replaced by
-    // QWidget::saveGeometry and QWidget::restoreGeometry, but let's stay with the KDE
-    // way of doing things.
-    KConfigGroup config(KGlobal::config(), "MainWindow");
-    restoreWindowSize( config );
+    restoreState(QByteArray::fromBase64(cfg.readEntry("ko_windowstate", QByteArray())));
 
     d->dockerManager = new KoDockerManager(this);
 }
@@ -445,8 +451,9 @@ void KoMainWindow::setNoCleanup(bool noCleanup)
 KoMainWindow::~KoMainWindow()
 {
     KConfigGroup cfg(KGlobal::config(), "MainWindow");
-    cfg.writeEntry("ko_x", frameGeometry().x());
-    cfg.writeEntry("ko_y", frameGeometry().y());
+    cfg.writeEntry("ko_geometry", saveGeometry().toBase64());
+    cfg.writeEntry("ko_windowstate", saveState().toBase64());
+
     {
         KConfigGroup group(KGlobal::config(), "theme");
         group.writeEntry("Theme", d->themeManager->currentThemeName());
@@ -590,6 +597,9 @@ void KoMainWindow::setRootDocument(KoDocument *doc, KoPart *part, bool deletePre
         statusBar()->setVisible(false);
     }
     else {
+#ifdef Q_OS_MAC
+        statusBar()->setMaximumHeight(28);
+#endif
         connect(d->rootDocument, SIGNAL(titleModified(QString,bool)), SLOT(slotDocumentTitleModified(QString,bool)));
     }
 }
@@ -818,6 +828,7 @@ void KoMainWindow::slotLoadCompleted()
         // We had no document, set the new one
         setRootDocument(newdoc);
     }
+    slotProgress(-1);
     disconnect(newdoc, SIGNAL(sigProgress(int)), this, SLOT(slotProgress(int)));
     disconnect(newdoc, SIGNAL(completed()), this, SLOT(slotLoadCompleted()));
     disconnect(newdoc, SIGNAL(canceled(const QString &)), this, SLOT(slotLoadCanceled(const QString &)));
@@ -986,7 +997,7 @@ bool KoMainWindow::saveDocument(bool saveas, bool silent, int specialOutputFlag)
                         this,
                         i18n("untitled"),
                         (isExporting() && !d->lastExportUrl.isEmpty()) ?
-                            d->lastExportUrl.url() : suggestedURL.url(),
+                            d->lastExportUrl.toLocalFile() : suggestedURL.toLocalFile(),
                         mimeFilter));
 
         QByteArray outputFormat = _native_format;
@@ -1299,26 +1310,29 @@ void KoMainWindow::slotFileOpen()
     //                                       KoFilterManager::Import,
     //                                       KoServiceProvider::readExtraNativeMimeTypes());
 
-    KConfigGroup group = KGlobal::config()->group("File Dialogs");
-    QString defaultDir = group.readEntry("OpenDialog");
-    if (defaultDir.isEmpty())
-        defaultDir = QDesktopServices::storageLocation(QDesktopServices::DocumentsLocation);
     QString url;
     if (!isImporting()) {
         url = KoFileDialogHelper::getOpenFileName(this,
                                                   i18n("Open Document"),
-                                                  defaultDir,
-                                                  mimeFilter);
+                                                  (qApp->applicationName().contains("krita") || qApp->applicationName().contains("karbon"))
+                                                     ? QDesktopServices::storageLocation(QDesktopServices::PicturesLocation)
+                                                     : QDesktopServices::storageLocation(QDesktopServices::DocumentsLocation),
+                                                  mimeFilter,
+                                                  "",
+                                                  "OpenDocument");
     } else {
         url = KoFileDialogHelper::getImportFileName(this,
                                                     i18n("Import Document"),
-                                                    defaultDir,
-                                                    mimeFilter);
+                                                    (qApp->applicationName().contains("krita") || qApp->applicationName().contains("karbon"))
+                                                        ? QDesktopServices::storageLocation(QDesktopServices::PicturesLocation)
+                                                        : QDesktopServices::storageLocation(QDesktopServices::DocumentsLocation),
+                                                    mimeFilter,
+                                                    "",
+                                                    "OpenDocument");
     }
 
     if (url.isEmpty())
         return;
-    group.writeEntry("OpenDialog", url);
 
     (void) openDocument(KUrl(url));
 }
@@ -1620,8 +1634,9 @@ void KoMainWindow::viewFullscreen(bool fullScreen)
 
 void KoMainWindow::slotProgress(int value)
 {
+    QMutexLocker(&d->progressMutex);
     kDebug(30003) << "KoMainWindow::slotProgress" << value;
-    if (value <= -1) {
+    if (value <= -1 || value >= 100) {
         if (d->progress) {
             statusBar()->removeWidget(d->progress);
             delete d->progress;
@@ -1652,7 +1667,9 @@ void KoMainWindow::slotProgress(int value)
         d->progress->show();
         d->firstTime = false;
     }
-    d->progress->setValue(value);
+    if (!d->progress.isNull()) {
+        d->progress->setValue(value);
+    }
     qApp->processEvents();
 }
 
@@ -1751,6 +1768,7 @@ void KoMainWindow::slotReloadFile()
 
     KUrl url = pDoc->url();
     if (!pDoc->isEmpty()) {
+        saveWindowSettings();
         setRootDocument(0);   // don't delete this main window when deleting the document
         if(d->rootDocument)
             d->rootDocument->clearUndoHistory();
@@ -1871,7 +1889,7 @@ QDockWidget* KoMainWindow::createDockWidget(KoDockFactoryBase* factory)
     qreal pointSize = group.readEntry("palettefontsize", dockWidgetFont.pointSize() * 0.75);
     pointSize = qMax(pointSize, KGlobalSettings::smallestReadableFont().pointSizeF());
     dockWidgetFont.setPointSizeF(pointSize);
-#ifdef Q_WS_MAC
+#ifdef Q_OS_MAC
     dockWidget->setAttribute(Qt::WA_MacSmallSize, true);
 #endif
     dockWidget->setFont(dockWidgetFont);
@@ -1972,7 +1990,7 @@ void KoMainWindow::newView()
 void KoMainWindow::createMainwindowGUI()
 {
     if ( isHelpMenuEnabled() && !d->m_helpMenu )
-        d->m_helpMenu = new KHelpMenu( this, componentData().aboutData(), true, actionCollection() );
+        d->m_helpMenu = new KHelpMenu( this, componentData().aboutData(), false, actionCollection() );
 
     QString f = xmlFile();
     setXMLFile( KStandardDirs::locate( "config", "ui/ui_standards.rc", componentData() ) );

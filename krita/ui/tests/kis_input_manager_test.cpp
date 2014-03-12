@@ -72,7 +72,7 @@ void KisInputManagerTest::testStrokeShortcut()
 
 struct TestingAction : public KisAbstractInputAction
 {
-    TestingAction() : KisAbstractInputAction(), m_isHighResolution(false) { reset(); }
+    TestingAction() : KisAbstractInputAction("TestingAction"), m_isHighResolution(false) { reset(); }
     ~TestingAction() {}
 
     void begin(int shortcut, QEvent *event) { m_beginIndex = shortcut; m_beginNonNull = event;}
@@ -129,7 +129,6 @@ void KisInputManagerTest::testKeyEvents()
     KisShortcutMatcher m;
 
     TestingAction *a = new TestingAction();
-    m.addAction(a);
 
 
     m.addShortcut(
@@ -274,7 +273,6 @@ void KisInputManagerTest::testReleaseUnnecessaryModifiers()
     KisShortcutMatcher m;
 
     TestingAction *a = new TestingAction();
-    m.addAction(a);
 
     m.addShortcut(
         createStrokeShortcut(a, 13,
@@ -320,7 +318,6 @@ void KisInputManagerTest::testMouseMoves()
     KisShortcutMatcher m;
 
     TestingAction *a = new TestingAction();
-    m.addAction(a);
 
     m.addShortcut(
         createStrokeShortcut(a, 13,

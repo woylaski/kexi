@@ -32,7 +32,7 @@ struct KisEmbeddedPatternManager::Private {
         KoPattern *pattern = 0;
 
         if (!md5.isEmpty()) {
-            foreach(KoResource *res, KoResourceServerProvider::instance()->patternServer()->resources()) {
+            foreach(KoResource * res, KoResourceServerProvider::instance()->patternServer()->resources()) {
                 KoPattern *pat = dynamic_cast<KoPattern *>(res);
                 if (pat && pat->valid() && pat->md5() == md5) {
                     pattern = pat;
@@ -70,6 +70,21 @@ struct KisEmbeddedPatternManager::Private {
 void KisEmbeddedPatternManager::saveEmbeddedPattern(KisPropertiesConfiguration* setting, const KoPattern *pattern)
 {
     QByteArray patternMD5 = pattern->md5();
+
+    /**
+     * The process of saving a pattern may be quite expensive, so
+     * we won't rewrite the pattern if has the same md5-sum and at
+     * least some data is present
+     */
+    QByteArray existingMD5 = QByteArray::fromBase64(setting->getString("Texture/Pattern/PatternMD5").toLatin1());
+    QString existingPatternBase64 = setting->getString("Texture/Pattern/PatternMD5").toLatin1();
+
+    if (patternMD5 == existingMD5 &&
+            !existingPatternBase64.isEmpty()) {
+
+        return;
+    }
+
     setting->setProperty("Texture/Pattern/PatternMD5", patternMD5.toBase64());
 
     QByteArray ba;
@@ -96,7 +111,8 @@ KoPattern* KisEmbeddedPatternManager::loadEmbeddedPattern(const KisPropertiesCon
             if (existingPattern) {
                 delete pattern;
                 pattern = existingPattern;
-            } else {
+            }
+            else {
                 KoResourceServerProvider::instance()->patternServer()->addResource(pattern, true);
             }
         }

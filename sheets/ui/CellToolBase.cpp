@@ -105,6 +105,7 @@
 #include "dialogs/StyleManagerDialog.h"
 #include "dialogs/SubtotalDialog.h"
 #include "dialogs/ValidityDialog.h"
+#include "dialogs/pivot.h"
 
 // Calligra
 #include <KoCanvasBase.h>
@@ -727,6 +728,11 @@ CellToolBase::CellToolBase(KoCanvasBase* canvas)
     connect(action, SIGNAL(triggered(bool)), this, SLOT(subtotals()));
     action->setToolTip(i18n("Create different kind of subtotals to a list or database"));
     
+    action = new KAction(i18n("&Pivot Tables..."), this);
+    addAction("Pivot", action);
+    connect(action, SIGNAL(triggered(bool)), this, SLOT(pivot()));
+    action->setToolTip(i18n("Create Pivot Tables"));
+    
     action = new KAction(i18n("Area Name..."), this);
     addAction("setAreaName", action);
     connect(action, SIGNAL(triggered(bool)), this, SLOT(setAreaName()));
@@ -832,7 +838,7 @@ CellToolBase::CellToolBase(KoCanvasBase* canvas)
     connect(action, SIGNAL(triggered(bool)), this, SLOT(sheetFormat()));
     action->setToolTip(i18n("Set the worksheet formatting"));
 
-    action = new KAction(i18n("Document Settings..."), this);
+    action = new KAction(koIcon("application-vnd.oasis.opendocument.spreadsheet"), i18n("Document Settings..."), this);
     addAction("documentSettingsDialog", action);
     connect(action, SIGNAL(triggered(bool)), this, SLOT(documentSettingsDialog()));
     action->setToolTip(i18n("Show document settings dialog"));
@@ -2270,7 +2276,7 @@ void CellToolBase::equalizeColumn()
         if (size != 0.0) {
             ResizeColumnManipulator* command = new ResizeColumnManipulator();
             command->setSheet(selection()->activeSheet());
-            command->setSize(qMax(qreal(2.0), size));
+            command->setSize(qMax(2.0, size));
             command->add(*selection());
             if (!command->execute())
                 delete command;
@@ -2883,6 +2889,18 @@ void CellToolBase::subtotals()
     }
 
     QPointer<SubtotalDialog> dialog = new SubtotalDialog(canvas()->canvasWidget(), selection());
+    dialog->exec();
+    delete dialog;
+}
+
+void CellToolBase::pivot()
+{
+    if ((selection()->lastRange().width() < 2) || (selection()->lastRange().height() < 2)) {
+        KMessageBox::error(canvas()->canvasWidget(), i18n("You must select multiple cells."));
+        return;
+    }
+
+    QPointer<Pivot> dialog = new Pivot(canvas()->canvasWidget(), selection());
     dialog->exec();
     delete dialog;
 }

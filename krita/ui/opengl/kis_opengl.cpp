@@ -22,6 +22,9 @@
 
 #include <QGLContext>
 #include <QGLWidget>
+#include <QDir>
+#include <QFile>
+#include <QDesktopServices>
 
 #include <kis_debug.h>
 #include <kis_config.h>
@@ -113,6 +116,24 @@ void KisOpenGL::createContext()
         dbgUI << "Status: Using GLEW" << (const char *)glewGetString(GLEW_VERSION);
     }
 #endif
+
+#ifdef Q_OS_WIN
+    QFile f(QDesktopServices::storageLocation(QDesktopServices::TempLocation) + "/krita-opengl.txt");
+    f.open(QFile::WriteOnly);
+    QString vendor((const char*)glGetString(GL_VENDOR));
+    f.write(vendor.toLatin1());
+    f.write(", ");
+    QString renderer((const char*)glGetString(GL_RENDERER));
+    f.write(renderer.toLatin1());
+    f.write(", ");
+    QString version((const char*)glGetString(GL_VERSION));
+    f.write(version.toLatin1());
+#endif
+}
+
+void KisOpenGL::initialMakeContextCurrent()
+{
+    sharedContextWidget()->makeCurrent();
 }
 
 void KisOpenGL::makeContextCurrent()
